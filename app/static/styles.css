@@ -1,33 +1,348 @@
-.bg-app{
-  min-height:100vh;
-  background:
-    radial-gradient(900px 600px at 10% 10%, rgba(34,211,238,0.14), transparent 55%),
-    radial-gradient(900px 600px at 85% 15%, rgba(167,139,250,0.12), transparent 55%),
-    linear-gradient(180deg, #070a12, #0b1020);
+/* ==========================================================================
+   PREMIUM ENTERPRISE DESIGN TOKENS & SYSTEM VARIABLES
+   ========================================================================== */
+:root {
+  /* Font Family Stack - Apple / Inter Modern System */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: "JetBrains Mono", "Fira Code", SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+
+  /* Color Palette - Premium Slate & Deep Space */
+  --bg-base: #060913;
+  --bg-surface: rgba(10, 15, 30, 0.7);
+  --bg-surface-hover: rgba(16, 24, 48, 0.85);
+  --bg-card: rgba(17, 24, 39, 0.6);
+  --bg-card-hover: rgba(22, 32, 53, 0.75);
+  
+  /* Vibrant Accents */
+  --accent-cyan: #22d3ee;
+  --accent-cyan-rgb: 34, 211, 238;
+  --accent-purple: #a78bfa;
+  --accent-purple-rgb: 167, 139, 250;
+  --accent-indigo: #6366f1;
+  --accent-indigo-rgb: 99, 102, 241;
+  
+  /* Text Contrast Hierarchy */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-accent: #38bdf8;
+
+  /* State Colors */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #06b6d4;
+
+  /* Borders & Dividers */
+  --border-glow: rgba(255, 255, 255, 0.08);
+  --border-glow-hover: rgba(255, 255, 255, 0.16);
+  --border-accent-glow: rgba(34, 211, 238, 0.2);
+  
+  /* Premium Linear Shadow System */
+  --shadow-sm: 0 2px 8px -1px rgba(0, 0, 0, 0.3), 0 1px 3px -1px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 12px 24px -4px rgba(0, 0, 0, 0.4), 0 4px 12px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 24px 48px -8px rgba(0, 0, 0, 0.5), 0 8px 24px -4px rgba(0, 0, 0, 0.4);
+  --shadow-premium: 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 20px 50px rgba(0, 0, 0, 0.6);
+
+  /* Animation Easings */
+  --transition-smooth: cubic-bezier(0.16, 1, 0.3, 1); /* Custom Apple/Linear Out-Quint */
+  --transition-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.card-glass{
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(17,24,39,0.55);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 18px 55px rgba(0,0,0,0.35);
+/* Light Mode / Accessibility Fallbacks */
+@media (prefers-color-scheme: light) {
+  :root {
+    /* Keep premium styling intact, adjust slightly for better contrast */
+    --border-glow: rgba(255, 255, 255, 0.12);
+  }
 }
 
-.kpi{
-  background: rgba(0,0,0,0.35);
-  border: 1px solid rgba(255,255,255,0.14);
+/* ==========================================================================
+   GLOBAL RESET & PERFORMANCE ENHANCEMENTS
+   ========================================================================== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background-color: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+/* Smooth Scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Premium Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(10, 15, 30, 0.3);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* WCAG Accessible Focus Indicator */
+*:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 4px;
+}
+
+/* ==========================================================================
+   PRESET INTERFACE ELEMENTS (Global SaaS Upgrades)
+   ========================================================================== */
+
+/* Typography Rules */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+p {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* Global Transition Settings */
+a, button, input, select, textarea {
+  transition: all 0.2s var(--transition-smooth);
+}
+
+/* Modern Input Fields */
+input[type="text"], input[type="search"], input[type="email"], select, textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-glow);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+input[type="text"]:focus, input[type="search"]:focus, input[type="email"]:focus, select:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.15);
+  outline: none;
+}
+
+/* Premium SaaS Interactive Elements (Buttons, Navigation, Table) */
+button, .btn {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 14px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Standard Premium Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* ==========================================================================
+   CORE USER CLASS UPGRADES (Your Specific Target Classes)
+   ========================================================================== */
+
+/* 1. App Background with High-Performance Dynamic Ambient Glow */
+.bg-app {
+  min-height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport fallback */
+  background: 
+    radial-gradient(1000px 700px at 8% 10%, rgba(34, 211, 238, 0.15), transparent 60%),
+    radial-gradient(1000px 700px at 90% 12%, rgba(167, 139, 250, 0.13), transparent 60%),
+    linear-gradient(180deg, #050812 0%, #0a0e1c 100%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  position: relative;
+}
+
+/* Subtle underlying mesh overlay to increase depth */
+.bg-app::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.08;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 2. Glassmorphism Card (Vercel & Apple Level Visuals) */
+.card-glass {
   border-radius: 16px;
-  padding: 14px;
+  border: 1px solid var(--border-glow);
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px); /* Safari Support */
+  box-shadow: var(--shadow-premium);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s var(--transition-smooth), 
+              border-color 0.3s var(--transition-smooth), 
+              box-shadow 0.3s var(--transition-smooth);
 }
-.kpi .label{ color: rgba(255,255,255,0.65); font-size: 12px; letter-spacing: .03em; }
-.kpi .value{ font-weight: 900; font-size: 20px; }
 
-.mini-kpi{
-  background: rgba(0,0,0,0.35);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 14px;
-  padding: 12px;
+/* Micro-interaction on card hover */
+.card-glass:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-glow-hover);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 
+              0 30px 60px -10px rgba(0, 0, 0, 0.7);
 }
-.mini-kpi .label{ color: rgba(255,255,255,0.65); font-size: 12px; }
-.mini-kpi .value{ font-weight: 900; font-size: 18px; }
+
+/* Shimmer effect inside Glass Cards */
+.card-glass::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -150%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.02) 50%,
+    transparent 100%
+  );
+  transition: transform 0.6s ease;
+  pointer-events: none;
+}
+
+.card-glass:hover::after {
+  transform: translateX(300%);
+  transition: transform 1.2s var(--transition-smooth);
+}
+
+/* 3. Primary KPI Block */
+.kpi {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-glow);
+  border-radius: 14px;
+  padding: 16px 20px;
+  transition: all 0.25s var(--transition-smooth);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* KPI Subtle Glow Interaction */
+.kpi:hover {
+  background: rgba(0, 0, 0, 0.45);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 20px -5px rgba(34, 211, 238, 0.15);
+  transform: scale(1.01);
+}
+
+.kpi .label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: color 0.2s ease;
+}
+
+.kpi:hover .label {
+  color: var(--accent-cyan);
+}
+
+.kpi .value {
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums; /* Monospacing alignments for numbers */
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+/* 4. Mini KPI Block */
+.mini-kpi {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 12px 16px;
+  transition: all 0.2s var(--transition-smooth);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mini-kpi:hover {
+  background: rgba(0, 0, 0, 0.35);
+  border-color: var(--accent-purple);
+  box-shadow: 0 0 15px -5px rgba(167, 139, 250, 0.15);
+}
+
+.mini-kpi .label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mini-kpi:hover .label {
+  color: var(--accent-purple);
+}
+
+.mini-kpi .value {
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   REDUCED MOTION SUPPORT
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-delay: -1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    background-attachment: initial !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+  .card-glass:hover, .kpi:hover, .mini-kpi:hover {
+    transform: none !important;
+  }
+}
