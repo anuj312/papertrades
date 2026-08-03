@@ -507,11 +507,43 @@ window.addEventListener("load", () => {
   const page = (window.PAPERTRADE && window.PAPERTRADE.page) || "";
 
   if (page === "dashboard") {
-    initDashboardExitHandler();
-    initDashboardQuickTrade();
-    refreshDashboard().catch(() => {});
-    setInterval(() => refreshDashboard().catch(() => {}), 2000);
+  initDashboardExitHandler();
+  initDashboardQuickTrade();
+
+  let stopped = false;
+  let inFlight = false;
+
+  async function loop() {
+    if (stopped || document.hidden) {
+      setTimeout(loop, 2000);
+      return;
+    }
+    if (inFlight) return;
+
+    inFlight = true;
+    let delay = 5000;
+
+    try {
+      const data = await refreshDashboard();
+      const npos = (data?.positions?.length) ? data.positions.length : 0;
+
+      // Render-safe: 1.5s for 0/1 position, else 5s
+      delay = (npos <= 1) ? 1500 : 5000;
+    } catch (e) {
+      delay = 5000;
+    } finally {
+      inFlight = false;
+      setTimeout(loop, delay);
+    }
   }
+
+  document.addEventListener("visibilitychange", () => {
+    // when user comes back, refresh immediately
+    if (!document.hidden) loop();
+  });
+
+  loop();
+}
 
   if (page === "trade") {
     initTrade().catch(() => {});
