@@ -126,9 +126,9 @@ function initDashboardExitHandler() {
     const instrumentId = btn.getAttribute("data-instrument-id");
     if (!instrumentId) return;
 
-    if (!confirm("Exit full position at market (paper) using current LTP?")) return;
-
+    // No confirmation: exit immediately
     btn.disabled = true;
+    const oldText = btn.textContent;
     btn.textContent = "EXITING...";
 
     try {
@@ -140,7 +140,7 @@ function initDashboardExitHandler() {
     } catch (err) {
       showDashMsg(`<div class="alert alert-danger py-2">Exit failed: ${err}</div>`);
       btn.disabled = false;
-      btn.textContent = "EXIT";
+      btn.textContent = oldText || "EXIT";
     }
   });
 }
