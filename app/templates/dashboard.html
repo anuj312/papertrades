@@ -2,36 +2,6 @@
 {% extends "base.html" %}
 
 {% block content %}
-<!-- Header + small search beside market badge -->
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h4 class="fw-bold mb-1">Dashboard</h4>
-    <div class="text-secondary small">Positions + live P&L • Trade from dashboard</div>
-  </div>
-
-  <div class="d-flex align-items-start gap-2">
-    <!-- Small search (left of badge) -->
-    <div class="position-relative" style="width: 340px; max-width: 44vw;">
-      <input
-        id="dashSearchBox"
-        class="form-control form-control-sm"
-        placeholder="Search & trade (icici 1660 / infy / NFO:...)"
-        autocomplete="off"
-      />
-      <!-- dropdown results overlay (doesn't push layout) -->
-      <div
-        id="dashSearchResults"
-        class="list-group mt-2 position-absolute w-100"
-        style="z-index: 1050; max-height: 320px; overflow: auto;"
-      ></div>
-    </div>
-
-    <span class="badge text-bg-{{ 'success' if market_open else 'secondary' }} mt-1">
-      {{ 'Market Open' if market_open else 'Market Closed' }}
-    </span>
-  </div>
-</div>
-
 <div id="dashMsg"></div>
 
 <!-- KPIs -->
@@ -71,7 +41,7 @@
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between">
           <h6 class="fw-bold mb-2">Positions</h6>
-          <span class="text-secondary small">Updates ~1s</span>
+          <span class="text-secondary small">Auto refresh</span>
         </div>
 
         <div class="table-responsive">
@@ -91,7 +61,7 @@
         </div>
 
         <div class="text-secondary small">
-          EXIT closes the full position (server computes correct lots). No confirmation popup.
+          EXIT closes the full position (no confirmation).
         </div>
       </div>
     </div>
@@ -137,7 +107,7 @@
   </div>
 </div>
 
-<!-- Order Modal (used by dashboard search quick trade) -->
+<!-- Order Modal (used by dashboard navbar search quick trade) -->
 <div class="modal fade" id="orderModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <div class="modal-content bg-dark text-light border-secondary">
@@ -155,7 +125,7 @@
           </div>
           <div class="text-end">
             <div class="text-secondary small">LTP</div>
-            <div id="mLtp" class="h1 fw-bold mb-0">—</div>
+            <div id="mLtp" class="h2 fw-bold mb-0">—</div>
             <div id="mMkt" class="text-secondary small"></div>
           </div>
         </div>

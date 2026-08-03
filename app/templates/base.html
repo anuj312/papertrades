@@ -12,13 +12,38 @@
 <nav class="navbar navbar-expand-lg navbar-dark border-bottom border-secondary sticky-top"
      style="backdrop-filter: blur(10px); background: rgba(0,0,0,0.55);">
   <div class="container">
+
     <a class="navbar-brand fw-bold" href="/dashboard">PaperTrader</a>
     <span class="badge text-bg-warning ms-2">DEMO • No real orders</span>
 
-    <div class="ms-auto d-flex gap-2">
+    <div class="ms-auto d-flex align-items-center gap-2">
+
+      {# ✅ Navbar search shown only on dashboard #}
+      {% if request.url.path == "/dashboard" %}
+      <div class="position-relative" style="width: 340px; max-width: 40vw;">
+        <input
+          id="dashSearchBox"
+          class="form-control form-control-sm"
+          placeholder="Search & trade (icici 1660 / infy / NFO:...)"
+          autocomplete="off"
+        />
+        <div
+          id="dashSearchResults"
+          class="list-group position-absolute w-100 mt-2"
+          style="z-index: 2000; max-height: 320px; overflow:auto;"
+        ></div>
+      </div>
+      {% endif %}
+
       <a class="btn btn-outline-light btn-sm" href="/trade">Trade</a>
       <a class="btn btn-outline-light btn-sm" href="/dashboard">Dashboard</a>
+
       <button class="btn btn-outline-danger btn-sm" id="btnReset" type="button">Reset</button>
+
+      {# ✅ Market badge beside Reset (right side) #}
+      <span class="badge text-bg-{{ 'success' if market_open else 'secondary' }}">
+        {{ 'Market Open' if market_open else 'Market Closed' }}
+      </span>
     </div>
   </div>
 </nav>
