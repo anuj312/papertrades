@@ -1,12 +1,32 @@
+{# app/templates/dashboard.html #}
 {% extends "base.html" %}
+
 {% block content %}
+<!-- Header + small search beside market badge -->
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h4 class="fw-bold mb-1">Dashboard</h4>
-    <div class="text-secondary small">EXIT closes full position at current LTP (paper-only).</div>
+    <div class="text-secondary small">Positions + live P&L • Trade from dashboard</div>
   </div>
-  <div class="text-end small">
-    <span class="badge text-bg-{{ 'success' if market_open else 'secondary' }}">
+
+  <div class="d-flex align-items-start gap-2">
+    <!-- Small search (left of badge) -->
+    <div class="position-relative" style="width: 340px; max-width: 44vw;">
+      <input
+        id="dashSearchBox"
+        class="form-control form-control-sm"
+        placeholder="Search & trade (icici 1660 / infy / NFO:...)"
+        autocomplete="off"
+      />
+      <!-- dropdown results overlay (doesn't push layout) -->
+      <div
+        id="dashSearchResults"
+        class="list-group mt-2 position-absolute w-100"
+        style="z-index: 1050; max-height: 320px; overflow: auto;"
+      ></div>
+    </div>
+
+    <span class="badge text-bg-{{ 'success' if market_open else 'secondary' }} mt-1">
       {{ 'Market Open' if market_open else 'Market Closed' }}
     </span>
   </div>
@@ -14,20 +34,46 @@
 
 <div id="dashMsg"></div>
 
+<!-- KPIs -->
 <div class="row g-3">
-  <div class="col-md-3"><div class="kpi"><div class="label">Cash</div><div id="kCash" class="value">—</div></div></div>
-  <div class="col-md-3"><div class="kpi"><div class="label">Unrealized</div><div id="kUnr" class="value">—</div></div></div>
-  <div class="col-md-3"><div class="kpi"><div class="label">Realized</div><div id="kRel" class="value">—</div></div></div>
-  <div class="col-md-3"><div class="kpi"><div class="label">Net Liquidation</div><div id="kNet" class="value">—</div></div></div>
+  <div class="col-md-3">
+    <div class="kpi">
+      <div class="label">Cash</div>
+      <div id="kCash" class="value">—</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="kpi">
+      <div class="label">Unrealized</div>
+      <div id="kUnr" class="value">—</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="kpi">
+      <div class="label">Realized</div>
+      <div id="kRel" class="value">—</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="kpi">
+      <div class="label">Net Liquidation</div>
+      <div id="kNet" class="value">—</div>
+    </div>
+  </div>
 </div>
 
 <hr class="border-secondary my-4"/>
 
 <div class="row g-3">
+  <!-- Positions -->
   <div class="col-lg-6">
     <div class="card card-glass">
       <div class="card-body">
-        <h6 class="fw-bold mb-2">Positions</h6>
+        <div class="d-flex align-items-center justify-content-between">
+          <h6 class="fw-bold mb-2">Positions</h6>
+          <span class="text-secondary small">Updates ~2s</span>
+        </div>
+
         <div class="table-responsive">
           <table class="table table-dark table-sm align-middle" id="posTable">
             <thead>
@@ -43,11 +89,15 @@
             <tbody></tbody>
           </table>
         </div>
-        <div class="text-secondary small">EXIT closes full position server-side (correct lots).</div>
+
+        <div class="text-secondary small">
+          EXIT closes the full position (server computes correct lots). No confirmation popup.
+        </div>
       </div>
     </div>
   </div>
 
+  <!-- Orders + Trades -->
   <div class="col-lg-6">
     <div class="card card-glass">
       <div class="card-body">
@@ -84,6 +134,77 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- Order Modal (used by dashboard search quick trade) -->
+<div class="modal fade" id="orderModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content bg-dark text-light border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title fw-bold">Place Paper Order</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="text-secondary small">Selected</div>
+            <div id="mSymbol" class="h5 fw-bold mb-0">—</div>
+            <div class="text-secondary small">Type: <span id="mType">—</span> • Lot: <span id="mLot">—</span></div>
+          </div>
+          <div class="text-end">
+            <div class="text-secondary small">LTP</div>
+            <div id="mLtp" class="h1 fw-bold mb-0">—</div>
+            <div id="mMkt" class="text-secondary small"></div>
+          </div>
+        </div>
+
+        <hr class="border-secondary"/>
+
+        <div class="row g-2">
+          <div class="col-md-6">
+            <div class="text-secondary small">Notional / Lot</div>
+            <div class="fw-bold" id="mCapPerLot">—</div>
+          </div>
+          <div class="col-md-6 text-md-end">
+            <div class="text-secondary small">Notional for Order</div>
+            <div class="fw-bold" id="mCapOrder">—</div>
+          </div>
+        </div>
+
+        <hr class="border-secondary"/>
+
+        <form id="mOrderForm">
+          <input type="hidden" id="mInstrumentId" name="instrument_id"/>
+
+          <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">Side</label>
+              <select class="form-select" name="side" id="mSide">
+                <option>BUY</option>
+                <option>SELL</option>
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">Lots</label>
+              <input class="form-control" type="number" min="1" value="1" name="lots" id="mLots"/>
+            </div>
+
+            <div class="col-md-4">
+              <button class="btn btn-primary w-100 btn-lg" type="submit">Place Paper Order</button>
+            </div>
+          </div>
+        </form>
+
+        <div id="mMsg" class="mt-3"></div>
+
+        <div class="text-secondary small mt-2">
+          Paper-only. Fills at current LTP. No real Zerodha orders are sent.
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

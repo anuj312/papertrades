@@ -345,4 +345,37 @@ button, .btn {
   .card-glass:hover, .kpi:hover, .mini-kpi:hover {
     transform: none !important;
   }
+
+  
+}
+
+/* Force readable text inside glass cards */
+.card-glass,
+.card-glass .card-body,
+.card-glass .card-title,
+.card-glass .card-text {
+  color: #e5e7eb !important;
+}
+
+/* Bootstrap text-secondary is too dim on our background */
+.card-glass .text-secondary {
+  color: rgba(229, 231, 235, 0.70) !important;
+}
+
+/* Make key values pop */
+#selSymbol, #selLtp,
+#qtyPerLot, #capPerLot,
+#qtyOrder, #capOrder {
+  color: #f8fafc !important;
+  font-weight: 900 !important;
+}
+
+/* Optional: slightly brighter card background */
+.card-glass{
+  background: rgba(17,24,39,0.72) !important;
+}
+
+#selLtp {
+  font-size: 24px;   /* adjust: 40–48 looks good */
+  line-height: 1.05;
 }

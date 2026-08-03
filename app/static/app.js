@@ -1,6 +1,4 @@
 // app/static/app.js
-// Full clean JS: Trade search (pretty option labels) + per-lot capital + paper order
-// + Dashboard live refresh + EXIT (no confirmation) via /api/exit
 
 async function jget(url) {
   const r = await fetch(url, { cache: "no-store" });
@@ -55,9 +53,7 @@ function showDashMsg(html) {
   setTimeout(() => { el.innerHTML = ""; }, 3000);
 }
 
-// -----------------------------
-// Pretty labels for NFO options
-// -----------------------------
+// ---------------- Pretty labels for NFO options ----------------
 function fmtStrike(x) {
   if (x === null || x === undefined) return "";
   const n = Number(x);
@@ -65,11 +61,6 @@ function fmtStrike(x) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
-/**
- * Fix for the "26AUG14" problem:
- * Some symbols like ADANIGREEN26AUG1400CE can be mis-parsed by regex (expiry grabs "14").
- * Here we split by removing the known suffix "<strike><CE/PE>" from the end.
- */
 function parseOptCodeFromTS(tradingsymbol, strike, optType, name) {
   const ts = String(tradingsymbol || "").toUpperCase().replace(/\s+/g, "");
   const type = String(optType || "").toUpperCase();
@@ -80,24 +71,20 @@ function parseOptCodeFromTS(tradingsymbol, strike, optType, name) {
   if (Number.isFinite(strikeNum)) {
     const s = Number.isInteger(strikeNum) ? String(parseInt(strikeNum, 10)) : String(strikeNum);
     strikeStrs.push(s);
-    strikeStrs.push(s.replace(".", "")); // some symbols omit dot
+    strikeStrs.push(s.replace(".", ""));
   }
 
-  // Best split: remove suffix "<strike><CE/PE>"
   for (const ss of strikeStrs) {
     const suf = ss + type;
     if (type && ss && ts.endsWith(suf)) {
-      const prefix = ts.slice(0, ts.length - suf.length); // underlying + expiry
+      const prefix = ts.slice(0, ts.length - suf.length);
       let exp = prefix;
-
       if (under && prefix.startsWith(under)) exp = prefix.slice(under.length);
-      else exp = prefix.replace(/^[A-Z]+/, ""); // remove leading letters if underlying unknown
-
+      else exp = prefix.replace(/^[A-Z]+/, "");
       return { under: under || "", exp, strike: ss, type };
     }
   }
 
-  // Fallback regex (rare)
   const m = ts.match(/^([A-Z]+)(\d{1,2}[A-Z]{3}\d{0,2})(\d+(?:\.\d+)?)(CE|PE)$/);
   if (!m) return null;
   return { under: m[1], exp: m[2], strike: m[3], type: m[4] };
@@ -109,103 +96,84 @@ function prettyLabel(it) {
   const name = String(it.name || "").toUpperCase();
   const type = String(it.instrument_type || "").toUpperCase();
 
-  // Options: ADANIGREEN 26AUG 1400 CE
   if (exch === "NFO" && (type === "CE" || type === "PE")) {
     const parsed = parseOptCodeFromTS(ts, it.strike, type, name);
-    let expCode = parsed?.exp || ""; // e.g. 26AUG or 26AUG24
-    // Optional: strip 2-digit year if present (26AUG24 -> 26AUG)
-    expCode = expCode.replace(/^(\d{1,2}[A-Z]{3})\d{2}$/, "$1");
-
+    let expCode = parsed?.exp || "";
+    expCode = expCode.replace(/^(\d{1,2}[A-Z]{3})\d{2}$/, "$1"); // strip year if present
     const strike = fmtStrike(it.strike ?? parsed?.strike);
     const under = name || parsed?.under || ts;
-
     return `${under} ${expCode} ${strike} ${type}`.replace(/\s+/g, " ").trim();
   }
 
-  // Stocks/others
   return `${exch}:${ts}`;
 }
 
-// =====================
-// Dashboard (Exit + P&L)
-// =====================
+// ===================== Dashboard refresh + EXIT =====================
 async function refreshDashboard() {
   if (!document.getElementById("posTable")) return;
 
   const data = await jget("/api/dashboard");
 
-  const kCash = document.getElementById("kCash");
-  const kUnr = document.getElementById("kUnr");
-  const kRel = document.getElementById("kRel");
-  const kNet = document.getElementById("kNet");
+  document.getElementById("kCash").textContent = "₹ " + fmtNum(data.cash);
+  document.getElementById("kUnr").textContent  = "₹ " + fmtNum(data.unrealized);
+  document.getElementById("kRel").textContent  = "₹ " + fmtNum(data.realized);
+  document.getElementById("kNet").textContent  = "₹ " + fmtNum(data.net_liq);
 
-  if (kCash) kCash.textContent = "₹ " + fmtNum(data.cash);
-  if (kUnr) kUnr.textContent = "₹ " + fmtNum(data.unrealized);
-  if (kRel) kRel.textContent = "₹ " + fmtNum(data.realized);
-  if (kNet) kNet.textContent = "₹ " + fmtNum(data.net_liq);
-
-  setPnLClass(kUnr, data.unrealized);
-  setPnLClass(kRel, data.realized);
+  setPnLClass(document.getElementById("kUnr"), data.unrealized);
+  setPnLClass(document.getElementById("kRel"), data.realized);
 
   // Positions
   const tb = document.querySelector("#posTable tbody");
-  if (tb) {
-    tb.innerHTML = "";
-    for (const p of (data.positions || [])) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${p.symbol}</td>
-        <td class="text-end">${p.qty}</td>
-        <td class="text-end">${fmtNum(p.avg)}</td>
-        <td class="text-end">${fmtNum(p.ltp)}</td>
-        <td class="text-end fw-bold">${fmtNum(p.pnl)}</td>
-        <td class="text-end">
-          <button class="btn btn-sm btn-outline-warning exit-btn"
-                  data-instrument-id="${p.instrument_id}">
-            EXIT
-          </button>
-        </td>
-      `;
-      setPnLClass(tr.querySelector("td:nth-child(5)"), p.pnl);
-      tb.appendChild(tr);
-    }
+  tb.innerHTML = "";
+  for (const p of (data.positions || [])) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${p.symbol}</td>
+      <td class="text-end">${p.qty}</td>
+      <td class="text-end">${fmtNum(p.avg)}</td>
+      <td class="text-end">${fmtNum(p.ltp)}</td>
+      <td class="text-end fw-bold">${fmtNum(p.pnl)}</td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-warning exit-btn" data-instrument-id="${p.instrument_id}">
+          EXIT
+        </button>
+      </td>
+    `;
+    setPnLClass(tr.querySelector("td:nth-child(5)"), p.pnl);
+    tb.appendChild(tr);
   }
 
   // Orders
   const ob = document.querySelector("#ordTable tbody");
-  if (ob) {
-    ob.innerHTML = "";
-    for (const o of (data.orders || [])) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${o.id}</td>
-        <td>${o.symbol}</td>
-        <td>${o.side}</td>
-        <td class="text-end">${o.lots}</td>
-        <td class="text-end">${o.qty}</td>
-        <td class="text-end">${fmtNum(o.price)}</td>
-        <td>${o.status}</td>
-      `;
-      ob.appendChild(tr);
-    }
+  ob.innerHTML = "";
+  for (const o of (data.orders || [])) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${o.id}</td>
+      <td>${o.symbol}</td>
+      <td>${o.side}</td>
+      <td class="text-end">${o.lots}</td>
+      <td class="text-end">${o.qty}</td>
+      <td class="text-end">${fmtNum(o.price)}</td>
+      <td>${o.status}</td>
+    `;
+    ob.appendChild(tr);
   }
 
   // Trades
   const th = document.querySelector("#trdTable tbody");
-  if (th) {
-    th.innerHTML = "";
-    for (const t of (data.trades || [])) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${t.id}</td>
-        <td>${t.symbol}</td>
-        <td>${t.side}</td>
-        <td class="text-end">${t.qty}</td>
-        <td class="text-end">${fmtNum(t.price)}</td>
-        <td class="text-secondary small">${t.time}</td>
-      `;
-      th.appendChild(tr);
-    }
+  th.innerHTML = "";
+  for (const t of (data.trades || [])) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${t.id}</td>
+      <td>${t.symbol}</td>
+      <td>${t.side}</td>
+      <td class="text-end">${t.qty}</td>
+      <td class="text-end">${fmtNum(t.price)}</td>
+      <td class="text-secondary small">${t.time}</td>
+    `;
+    th.appendChild(tr);
   }
 }
 
@@ -220,7 +188,6 @@ function initDashboardExitHandler() {
     const instrumentId = btn.getAttribute("data-instrument-id");
     if (!instrumentId) return;
 
-    // No confirmation: exit immediately
     btn.disabled = true;
     const oldText = btn.textContent;
     btn.textContent = "EXITING...";
@@ -239,76 +206,90 @@ function initDashboardExitHandler() {
   });
 }
 
-// =====================
-// Trade page (Search/Buy/Sell)
-// =====================
-async function initTrade() {
-  const searchBox = document.getElementById("searchBox");
-  const results = document.getElementById("searchResults");
+// ===================== Dashboard Quick Trade (Search + Modal) =====================
+function initDashboardQuickTrade() {
+  const box = document.getElementById("dashSearchBox");
+  const results = document.getElementById("dashSearchResults");
+  const modalEl = document.getElementById("orderModal");
+  if (!box || !results || !modalEl || typeof bootstrap === "undefined") return;
 
-  const selSymbol = document.getElementById("selSymbol");
-  const selType = document.getElementById("selType");
-  const selLot = document.getElementById("selLot");
-  const selLtp = document.getElementById("selLtp");
-  const mktStatus = document.getElementById("mktStatus");
+  const modal = new bootstrap.Modal(modalEl);
 
-  const qtyPerLot = document.getElementById("qtyPerLot");
-  const capPerLot = document.getElementById("capPerLot");
-  const qtyOrder = document.getElementById("qtyOrder");
-  const capOrder = document.getElementById("capOrder");
+  const mSymbol = document.getElementById("mSymbol");
+  const mType = document.getElementById("mType");
+  const mLot = document.getElementById("mLot");
+  const mLtp = document.getElementById("mLtp");
+  const mMkt = document.getElementById("mMkt");
+  const mCapPerLot = document.getElementById("mCapPerLot");
+  const mCapOrder = document.getElementById("mCapOrder");
+  const mMsg = document.getElementById("mMsg");
 
-  const instrumentId = document.getElementById("instrumentId");
-  const orderForm = document.getElementById("orderForm");
-  const orderMsg = document.getElementById("orderMsg");
+  const mForm = document.getElementById("mOrderForm");
+  const mInstrumentId = document.getElementById("mInstrumentId");
+  const mSide = document.getElementById("mSide");
+  const mLots = document.getElementById("mLots");
 
-  const dashCash = document.getElementById("dashCash");
-  const dashNet = document.getElementById("dashNet");
-
-  if (!searchBox || !results || !orderForm) return;
-
-  const sideSel = orderForm.querySelector('select[name="side"]');
-  const lotsInp = orderForm.querySelector('input[name="lots"]');
-
-  let currentInstrument = null;
+  let selected = null;
+  let quoteTimer = null;
   let lastQuote = null;
 
-  function clearCapitalUI() {
-    if (qtyPerLot) qtyPerLot.textContent = "—";
-    if (capPerLot) capPerLot.textContent = "—";
-    if (qtyOrder) qtyOrder.textContent = "—";
-    if (capOrder) capOrder.textContent = "—";
+  function clearQuoteUI() {
+    if (mLtp) mLtp.textContent = "—";
+    if (mMkt) mMkt.textContent = "";
+    if (mCapPerLot) mCapPerLot.textContent = "—";
+    if (mCapOrder) mCapOrder.textContent = "—";
   }
 
-  function updateCapitalUI() {
-    if (!currentInstrument || !lastQuote || lastQuote.ltp === null || lastQuote.ltp === undefined) {
-      clearCapitalUI();
+  function updateCapUI() {
+    if (!selected || !lastQuote || lastQuote.ltp == null) {
+      clearQuoteUI();
       return;
     }
-
     const ltp = Number(lastQuote.ltp);
-    const lot = Number(lastQuote.lot_size || currentInstrument.lot_size || 1);
-    const lots = Math.max(1, Number(lotsInp?.value || 1));
-    const side = String(sideSel?.value || "BUY").toUpperCase();
+    const lot = Number(lastQuote.lot_size || selected.lot_size || 1);
+    const lots = Math.max(1, Number(mLots?.value || 1));
+    const side = String(mSide?.value || "BUY").toUpperCase();
 
-    const perLotQty = lot;
-    const ordQty = lot * lots;
+    const perLot = ltp * lot;
+    const ord = ltp * lot * lots;
 
-    const perLotNotional = ltp * perLotQty;
-    const ordNotional = ltp * ordQty;
+    if (mCapPerLot) mCapPerLot.textContent = fmtINR(perLot);
+    if (mCapOrder) mCapOrder.textContent = side === "SELL" ? `${fmtINR(ord)} (credit)` : fmtINR(ord);
+  }
 
-    if (qtyPerLot) qtyPerLot.textContent = String(perLotQty);
-    if (capPerLot) capPerLot.textContent = fmtINR(perLotNotional);
-
-    if (qtyOrder) qtyOrder.textContent = String(ordQty);
-    if (capOrder) {
-      capOrder.textContent = side === "SELL"
-        ? `${fmtINR(ordNotional)} (credit)`
-        : fmtINR(ordNotional);
+  async function pollQuoteOnce() {
+    if (!selected) return;
+    try {
+      const q = await jget(`/api/quote/${selected.instrument_id}`);
+      lastQuote = q;
+      if (mLtp) mLtp.textContent = (q.ltp == null ? "—" : Number(q.ltp).toFixed(2));
+      if (mMkt) mMkt.textContent = q.market_open ? "Market open (live quotes)" : "Market closed (last quote if available)";
+      updateCapUI();
+    } catch {
+      // ignore
     }
   }
 
+  function startQuotePoll() {
+    stopQuotePoll();
+    pollQuoteOnce();
+    quoteTimer = setInterval(pollQuoteOnce, 1500);
+  }
+
+  function stopQuotePoll() {
+    if (quoteTimer) clearInterval(quoteTimer);
+    quoteTimer = null;
+  }
+
+  modalEl.addEventListener("hidden.bs.modal", () => {
+    stopQuotePoll();
+    selected = null;
+    lastQuote = null;
+    if (mMsg) mMsg.innerHTML = "";
+  });
+
   const doSearch = debounce(async () => {
-    const q = searchBox.value.trim();
+    const q = box.value.trim();
     results.innerHTML = "";
     if (q.length < 2) return;
 
@@ -321,24 +302,151 @@ async function initTrade() {
 
     for (const it of (items || [])) {
       const b = document.createElement("button");
+      b.type = "button";
+      b.className = "list-group-item list-group-item-action bg-dark text-light border-secondary";
+
+      const primary = prettyLabel(it);
+      const secondary = `${it.exchange}:${it.tradingsymbol} • lot ${it.lot_size}`;
+      b.innerHTML = `<div class="fw-bold">${primary}</div><div class="small text-secondary">${secondary}</div>`;
+
+      b.onclick = () => {
+        selected = it;
+        results.innerHTML = "";
+        box.value = "";
+
+        if (mInstrumentId) mInstrumentId.value = it.instrument_id;
+        if (mSymbol) mSymbol.textContent = primary;
+        if (mType) mType.textContent = it.instrument_type || "—";
+        if (mLot) mLot.textContent = it.lot_size;
+
+        if (mLots) mLots.value = "1";
+        if (mSide) mSide.value = "BUY";
+
+        lastQuote = null;
+        clearQuoteUI();
+        if (mMsg) mMsg.innerHTML = "";
+
+        modal.show();
+        startQuotePoll();
+      };
+
+      results.appendChild(b);
+    }
+  }, 200);
+
+  box.addEventListener("input", doSearch);
+  mLots?.addEventListener("input", updateCapUI);
+  mSide?.addEventListener("change", updateCapUI);
+
+  // Submit modal order
+  mForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (mMsg) mMsg.innerHTML = "";
+
+    if (!mInstrumentId?.value) {
+      if (mMsg) mMsg.innerHTML = `<div class="alert alert-warning py-2">No instrument selected.</div>`;
+      return;
+    }
+
+    try {
+      const res = await jpostForm("/api/order", {
+        instrument_id: mInstrumentId.value,
+        side: mSide?.value || "BUY",
+        lots: mLots?.value || "1",
+      });
+
+      if (mMsg) {
+        mMsg.innerHTML = `<div class="alert alert-success py-2">
+          Order #${res.order_id}: FILLED @ ${Number(res.fill_price).toFixed(2)}
+        </div>`;
+      }
+
+      await refreshDashboard();
+    } catch (err) {
+      if (mMsg) mMsg.innerHTML = `<div class="alert alert-danger py-2">${err}</div>`;
+    }
+  });
+}
+
+// ===================== Trade page (unchanged) =====================
+async function initTrade() {
+  const searchBox = document.getElementById("searchBox");
+  const results = document.getElementById("searchResults");
+  const selSymbol = document.getElementById("selSymbol");
+  const selType = document.getElementById("selType");
+  const selLot = document.getElementById("selLot");
+  const selLtp = document.getElementById("selLtp");
+  const mktStatus = document.getElementById("mktStatus");
+  const qtyPerLot = document.getElementById("qtyPerLot");
+  const capPerLot = document.getElementById("capPerLot");
+  const qtyOrder  = document.getElementById("qtyOrder");
+  const capOrder  = document.getElementById("capOrder");
+  const instrumentId = document.getElementById("instrumentId");
+  const orderForm = document.getElementById("orderForm");
+  const orderMsg = document.getElementById("orderMsg");
+  const dashCash = document.getElementById("dashCash");
+  const dashNet = document.getElementById("dashNet");
+
+  if (!searchBox || !results || !orderForm) return;
+
+  const sideSel = orderForm.querySelector('select[name="side"]');
+  const lotsInp = orderForm.querySelector('input[name="lots"]');
+
+  let currentInstrument = null;
+  let lastQuote = null;
+
+  function clearCapitalUI() {
+    qtyPerLot.textContent = "—";
+    capPerLot.textContent = "—";
+    qtyOrder.textContent = "—";
+    capOrder.textContent = "—";
+  }
+
+  function updateCapitalUI() {
+    if (!currentInstrument || !lastQuote || lastQuote.ltp == null) {
+      clearCapitalUI();
+      return;
+    }
+    const ltp = Number(lastQuote.ltp);
+    const lot = Number(lastQuote.lot_size || currentInstrument.lot_size || 1);
+    const lots = Math.max(1, Number(lotsInp.value || 1));
+    const side = String(sideSel.value || "BUY").toUpperCase();
+
+    const perLotQty = lot;
+    const ordQty = lot * lots;
+
+    qtyPerLot.textContent = String(perLotQty);
+    capPerLot.textContent = fmtINR(ltp * perLotQty);
+
+    qtyOrder.textContent = String(ordQty);
+    capOrder.textContent = side === "SELL"
+      ? `${fmtINR(ltp * ordQty)} (credit)`
+      : fmtINR(ltp * ordQty);
+  }
+
+  const doSearch = debounce(async () => {
+    const q = searchBox.value.trim();
+    results.innerHTML = "";
+    if (q.length < 2) return;
+
+    const items = await jget(`/api/search?q=${encodeURIComponent(q)}`);
+    for (const it of (items || [])) {
+      const b = document.createElement("button");
       b.className = "list-group-item list-group-item-action bg-dark text-light border-secondary";
       b.type = "button";
 
       const primary = prettyLabel(it);
       const secondary = `${it.exchange}:${it.tradingsymbol} • lot ${it.lot_size}`;
 
-      b.innerHTML = `
-        <div class="fw-bold">${primary}</div>
-        <div class="small text-secondary">${secondary}</div>
-      `;
+      b.innerHTML = `<div class="fw-bold">${primary}</div><div class="small text-secondary">${secondary}</div>`;
 
       b.onclick = () => {
         currentInstrument = it;
         instrumentId.value = it.instrument_id;
 
-        if (selSymbol) selSymbol.textContent = primary;
-        if (selType) selType.textContent = it.instrument_type || "—";
-        if (selLot) selLot.textContent = it.lot_size;
+        selSymbol.textContent = primary;
+        selType.textContent = it.instrument_type || "—";
+        selLot.textContent = it.lot_size;
 
         results.innerHTML = "";
         lastQuote = null;
@@ -350,68 +458,46 @@ async function initTrade() {
   }, 200);
 
   searchBox.addEventListener("input", doSearch);
-  lotsInp?.addEventListener("input", updateCapitalUI);
-  sideSel?.addEventListener("change", updateCapitalUI);
+  lotsInp.addEventListener("input", updateCapitalUI);
+  sideSel.addEventListener("change", updateCapitalUI);
 
-  // Quote polling
   setInterval(async () => {
     if (!currentInstrument) return;
-    try {
-      const q = await jget(`/api/quote/${currentInstrument.instrument_id}`);
-      lastQuote = q;
+    const q = await jget(`/api/quote/${currentInstrument.instrument_id}`);
+    lastQuote = q;
 
-      if (selLtp) selLtp.textContent = (q.ltp === null ? "—" : Number(q.ltp).toFixed(2));
-      if (mktStatus) {
-        mktStatus.textContent = q.market_open
-          ? "Market open (live quotes)"
-          : "Market closed (last quote if available)";
-      }
-      updateCapitalUI();
-    } catch {
-      // ignore
-    }
+    selLtp.textContent = (q.ltp == null ? "—" : Number(q.ltp).toFixed(2));
+    mktStatus.textContent = q.market_open ? "Market open (live quotes)" : "Market closed (last quote if available)";
+    updateCapitalUI();
   }, 1500);
 
-  // Mini account panel polling
   setInterval(async () => {
-    try {
-      const d = await jget("/api/dashboard");
-      if (dashCash) dashCash.textContent = fmtINR(d.cash);
-      if (dashNet) {
-        dashNet.textContent = fmtINR(d.net_liq);
-        setPnLClass(dashNet, Number(d.net_liq) - Number(d.cash));
-      }
-    } catch {
-      // ignore
-    }
+    const d = await jget("/api/dashboard");
+    dashCash.textContent = fmtINR(d.cash);
+    dashNet.textContent = fmtINR(d.net_liq);
+    setPnLClass(dashNet, d.net_liq - d.cash);
   }, 2500);
 
-  // Place paper order
   orderForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (orderMsg) orderMsg.innerHTML = "";
+    orderMsg.innerHTML = "";
 
     if (!instrumentId.value) {
-      if (orderMsg) orderMsg.innerHTML = `<div class="alert alert-warning py-2">Select an instrument first.</div>`;
+      orderMsg.innerHTML = `<div class="alert alert-warning py-2">Select an instrument first.</div>`;
       return;
     }
 
     try {
       const res = await jpostForm("/api/order", {
         instrument_id: instrumentId.value,
-        side: sideSel?.value || "BUY",
-        lots: lotsInp?.value || "1",
+        side: sideSel.value,
+        lots: lotsInp.value,
       });
-
-      if (orderMsg) {
-        orderMsg.innerHTML = `
-          <div class="alert alert-success py-2">
-            Order #${res.order_id}: FILLED @ ${Number(res.fill_price).toFixed(2)}
-          </div>
-        `;
-      }
+      orderMsg.innerHTML = `<div class="alert alert-success py-2">
+        Order #${res.order_id}: FILLED @ ${Number(res.fill_price).toFixed(2)}
+      </div>`;
     } catch (err) {
-      if (orderMsg) orderMsg.innerHTML = `<div class="alert alert-danger py-2">${err}</div>`;
+      orderMsg.innerHTML = `<div class="alert alert-danger py-2">${err}</div>`;
     }
   });
 }
@@ -422,6 +508,7 @@ window.addEventListener("load", () => {
 
   if (page === "dashboard") {
     initDashboardExitHandler();
+    initDashboardQuickTrade();
     refreshDashboard().catch(() => {});
     setInterval(() => refreshDashboard().catch(() => {}), 2000);
   }
