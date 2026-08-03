@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card card-glass">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h5 class="fw-bold mb-1">Search & Trade</h5>
+            <div class="text-secondary small">
+              Search NSE stocks & NFO options. Paper fills at current LTP. No real orders.
+            </div>
+          </div>
+          <span class="badge text-bg-{{ 'success' if market_open else 'secondary' }}">
+            {{ 'Market Open' if market_open else 'Market Closed' }}
+          </span>
+        </div>
+
+        <div class="mt-3">
+          <input id="searchBox" class="form-control form-control-lg"
+                 placeholder="Search (e.g. ICICI 1660, ICICI 1660 CE, NFO:ICICIBANK26AUG1660CE, INFY)"/>
+          <div id="searchResults" class="list-group mt-2"></div>
+        </div>
+
+        <div class="mt-3 p-3 border border-secondary rounded-4">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-secondary small">Selected</div>
+              <div id="selSymbol" class="h5 fw-bold mb-0">—</div>
+              <div class="text-secondary small">
+                Type: <span id="selType">—</span> • Lot: <span id="selLot">—</span>
+              </div>
+            </div>
+            <div class="text-end">
+              <div class="text-secondary small">LTP</div>
+              <div id="selLtp" class="display-6 fw-bold mb-0">—</div>
+              <div id="mktStatus" class="text-secondary small"></div>
+            </div>
+          </div>
+
+          <!-- ✅ Capital / lot + order notional -->
+          <div class="row g-2 mt-3">
+            <div class="col-md-6">
+              <div class="text-secondary small">Qty / Lot</div>
+              <div class="fw-bold" id="qtyPerLot">—</div>
+            </div>
+            <div class="col-md-6 text-md-end">
+              <div class="text-secondary small">Notional / Lot (LTP × Lot)</div>
+              <div class="fw-bold" id="capPerLot">—</div>
+            </div>
+
+            <div class="col-md-6">
+              <div class="text-secondary small">Order Qty (Lots × Lot)</div>
+              <div class="fw-bold" id="qtyOrder">—</div>
+            </div>
+            <div class="col-md-6 text-md-end">
+              <div class="text-secondary small">Notional for Order</div>
+              <div class="fw-bold" id="capOrder">—</div>
+            </div>
+          </div>
+
+          <hr class="border-secondary"/>
+
+          <form id="orderForm">
+            <input type="hidden" name="instrument_id" id="instrumentId"/>
+
+            <div class="row g-2 align-items-end">
+              <div class="col-md-4">
+                <label class="form-label">Side</label>
+                <select class="form-select" name="side">
+                  <option>BUY</option>
+                  <option>SELL</option>
+                </select>
+              </div>
+
+              <div class="col-md-4">
+                <label class="form-label">Lots</label>
+                <input class="form-control" type="number" min="1" value="1" name="lots"/>
+              </div>
+
+              <div class="col-md-4">
+                <button class="btn btn-primary w-100 btn-lg">Place Paper Order</button>
+              </div>
+            </div>
+          </form>
+
+          <div id="orderMsg" class="mt-3"></div>
+
+          <div class="text-secondary small mt-2">
+            Note: “Notional” is premium × quantity. This is NOT margin requirement.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card card-glass">
+      <div class="card-body">
+        <h6 class="fw-bold mb-2">Live Account</h6>
+        <div class="row g-2">
+          <div class="col-6">
+            <div class="mini-kpi">
+              <div class="label">Cash</div>
+              <div id="dashCash" class="value">—</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="mini-kpi">
+              <div class="label">Net Liq</div>
+              <div id="dashNet" class="value">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-3">
+          <a class="btn btn-outline-light btn-sm" href="/dashboard">Open full dashboard</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card card-glass mt-3">
+      <div class="card-body">
+        <h6 class="fw-bold mb-2">Examples</h6>
+        <ul class="text-secondary small mb-0">
+          <li><code>icici 1660</code> → nearby strikes CE/PE</li>
+          <li><code>icici 1660 ce</code> → calls only</li>
+          <li><code>NFO:ICICIBANK26AUG1660CE</code> → exact contract</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>window.PAPERTRADE = { page: "trade" };</script>
+{% endblock %}
