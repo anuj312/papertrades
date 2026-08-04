@@ -29,6 +29,12 @@ function fmtINR(n) {
   return "₹ " + x.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 }
 
+function fmtPct(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(2) + "%";
+}
+
 function setPnLClass(el, v) {
   if (!el) return;
   el.classList.remove("text-success", "text-danger");
@@ -53,7 +59,7 @@ function showDashMsg(html) {
   setTimeout(() => { el.innerHTML = ""; }, 3000);
 }
 
-// ---------------- Pretty labels for NFO options ----------------
+// ---------------- Pretty labels for NFO options (used in search + modal) ----------------
 function fmtStrike(x) {
   if (x === null || x === undefined) return "";
   const n = Number(x);
@@ -61,6 +67,7 @@ function fmtStrike(x) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
+// Fix for 26AUG14 parsing: split by stripping "<strike><CE/PE>" suffix
 function parseOptCodeFromTS(tradingsymbol, strike, optType, name) {
   const ts = String(tradingsymbol || "").toUpperCase().replace(/\s+/g, "");
   const type = String(optType || "").toUpperCase();
@@ -85,6 +92,7 @@ function parseOptCodeFromTS(tradingsymbol, strike, optType, name) {
     }
   }
 
+  // fallback regex (rare)
   const m = ts.match(/^([A-Z]+)(\d{1,2}[A-Z]{3}\d{0,2})(\d+(?:\.\d+)?)(CE|PE)$/);
   if (!m) return null;
   return { under: m[1], exp: m[2], strike: m[3], type: m[4] };
@@ -99,7 +107,7 @@ function prettyLabel(it) {
   if (exch === "NFO" && (type === "CE" || type === "PE")) {
     const parsed = parseOptCodeFromTS(ts, it.strike, type, name);
     let expCode = parsed?.exp || "";
-    expCode = expCode.replace(/^(\d{1,2}[A-Z]{3})\d{2}$/, "$1"); // strip year if present
+    expCode = expCode.replace(/^(\d{1,2}[A-Z]{3})\d{2}$/, "$1"); // strip 2-digit year
     const strike = fmtStrike(it.strike ?? parsed?.strike);
     const under = name || parsed?.under || ts;
     return `${under} ${expCode} ${strike} ${type}`.replace(/\s+/g, " ").trim();
@@ -110,7 +118,7 @@ function prettyLabel(it) {
 
 // ===================== Dashboard refresh + EXIT =====================
 async function refreshDashboard() {
-  if (!document.getElementById("posTable")) return;
+  if (!document.getElementById("posTable")) return null;
 
   const data = await jget("/api/dashboard");
 
@@ -122,24 +130,41 @@ async function refreshDashboard() {
   setPnLClass(document.getElementById("kUnr"), data.unrealized);
   setPnLClass(document.getElementById("kRel"), data.realized);
 
-  // Positions
+  // Positions (✅ remove NFO:/NSE: prefix + ✅ add RET%)
   const tb = document.querySelector("#posTable tbody");
   tb.innerHTML = "";
+
   for (const p of (data.positions || [])) {
+    const rawSym = String(p.symbol || "");
+    const dispSym = rawSym.includes(":") ? rawSym.split(":").pop() : rawSym;
+
+    const qty = Number(p.qty || 0);
+    const avg = Number(p.avg || 0);
+    const pnl = Number(p.pnl || 0);
+
+    // Return% based on entry notional (premium × qty)
+    const denom = Math.abs(qty) * avg;
+    const retPct = denom > 0 ? (pnl / denom) * 100.0 : null;
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${p.symbol}</td>
-      <td class="text-end">${p.qty}</td>
-      <td class="text-end">${fmtNum(p.avg)}</td>
+      <td>${dispSym}</td>
+      <td class="text-end">${qty}</td>
+      <td class="text-end">${fmtNum(avg)}</td>
       <td class="text-end">${fmtNum(p.ltp)}</td>
-      <td class="text-end fw-bold">${fmtNum(p.pnl)}</td>
+      <td class="text-end fw-bold">${fmtPct(retPct)}</td>
+      <td class="text-end fw-bold">${fmtNum(pnl)}</td>
       <td class="text-end">
         <button class="btn btn-sm btn-outline-warning exit-btn" data-instrument-id="${p.instrument_id}">
           EXIT
         </button>
       </td>
     `;
-    setPnLClass(tr.querySelector("td:nth-child(5)"), p.pnl);
+
+    // Color RET% and P&L
+    setPnLClass(tr.querySelector("td:nth-child(5)"), retPct);
+    setPnLClass(tr.querySelector("td:nth-child(6)"), pnl);
+
     tb.appendChild(tr);
   }
 
@@ -175,6 +200,8 @@ async function refreshDashboard() {
     `;
     th.appendChild(tr);
   }
+
+  return data;
 }
 
 function initDashboardExitHandler() {
@@ -206,7 +233,7 @@ function initDashboardExitHandler() {
   });
 }
 
-// ===================== Dashboard Quick Trade (Search + Modal) =====================
+// ===================== Dashboard Quick Trade (Navbar Search + Modal) =====================
 function initDashboardQuickTrade() {
   const box = document.getElementById("dashSearchBox");
   const results = document.getElementById("dashSearchResults");
@@ -338,7 +365,6 @@ function initDashboardQuickTrade() {
   mLots?.addEventListener("input", updateCapUI);
   mSide?.addEventListener("change", updateCapUI);
 
-  // Submit modal order
   mForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (mMsg) mMsg.innerHTML = "";
@@ -368,22 +394,26 @@ function initDashboardQuickTrade() {
   });
 }
 
-// ===================== Trade page (unchanged) =====================
+// ===================== Trade page =====================
 async function initTrade() {
   const searchBox = document.getElementById("searchBox");
   const results = document.getElementById("searchResults");
+
   const selSymbol = document.getElementById("selSymbol");
   const selType = document.getElementById("selType");
   const selLot = document.getElementById("selLot");
   const selLtp = document.getElementById("selLtp");
   const mktStatus = document.getElementById("mktStatus");
+
   const qtyPerLot = document.getElementById("qtyPerLot");
   const capPerLot = document.getElementById("capPerLot");
   const qtyOrder  = document.getElementById("qtyOrder");
   const capOrder  = document.getElementById("capOrder");
+
   const instrumentId = document.getElementById("instrumentId");
   const orderForm = document.getElementById("orderForm");
   const orderMsg = document.getElementById("orderMsg");
+
   const dashCash = document.getElementById("dashCash");
   const dashNet = document.getElementById("dashNet");
 
@@ -437,7 +467,6 @@ async function initTrade() {
 
       const primary = prettyLabel(it);
       const secondary = `${it.exchange}:${it.tradingsymbol} • lot ${it.lot_size}`;
-
       b.innerHTML = `<div class="fw-bold">${primary}</div><div class="small text-secondary">${secondary}</div>`;
 
       b.onclick = () => {
@@ -469,14 +498,14 @@ async function initTrade() {
     selLtp.textContent = (q.ltp == null ? "—" : Number(q.ltp).toFixed(2));
     mktStatus.textContent = q.market_open ? "Market open (live quotes)" : "Market closed (last quote if available)";
     updateCapitalUI();
-  }, 1500);
+  }, 2000); // Render-safe
 
   setInterval(async () => {
     const d = await jget("/api/dashboard");
     dashCash.textContent = fmtINR(d.cash);
     dashNet.textContent = fmtINR(d.net_liq);
     setPnLClass(dashNet, d.net_liq - d.cash);
-  }, 2500);
+  }, 4000);
 
   orderForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -507,43 +536,40 @@ window.addEventListener("load", () => {
   const page = (window.PAPERTRADE && window.PAPERTRADE.page) || "";
 
   if (page === "dashboard") {
-  initDashboardExitHandler();
-  initDashboardQuickTrade();
+    initDashboardExitHandler();
+    initDashboardQuickTrade();
 
-  let stopped = false;
-  let inFlight = false;
+    // Render-safe dynamic refresh: 1.5s for 0/1 position, else 5s. Pauses when tab hidden.
+    let inFlight = false;
 
-  async function loop() {
-    if (stopped || document.hidden) {
-      setTimeout(loop, 2000);
-      return;
+    async function loop() {
+      if (document.hidden) {
+        setTimeout(loop, 2000);
+        return;
+      }
+      if (inFlight) return;
+
+      inFlight = true;
+      let delay = 5000;
+
+      try {
+        const data = await refreshDashboard();
+        const npos = data?.positions?.length ? data.positions.length : 0;
+        delay = (npos <= 1) ? 1500 : 5000;
+      } catch {
+        delay = 5000;
+      } finally {
+        inFlight = false;
+        setTimeout(loop, delay);
+      }
     }
-    if (inFlight) return;
 
-    inFlight = true;
-    let delay = 5000;
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) loop();
+    });
 
-    try {
-      const data = await refreshDashboard();
-      const npos = (data?.positions?.length) ? data.positions.length : 0;
-
-      // Render-safe: 1.5s for 0/1 position, else 5s
-      delay = (npos <= 1) ? 1500 : 5000;
-    } catch (e) {
-      delay = 5000;
-    } finally {
-      inFlight = false;
-      setTimeout(loop, delay);
-    }
+    loop();
   }
-
-  document.addEventListener("visibilitychange", () => {
-    // when user comes back, refresh immediately
-    if (!document.hidden) loop();
-  });
-
-  loop();
-}
 
   if (page === "trade") {
     initTrade().catch(() => {});
