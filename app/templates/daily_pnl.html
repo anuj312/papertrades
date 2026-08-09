@@ -14,6 +14,28 @@
       </span>
     </div>
 
+    <!-- Totals -->
+    <div class="row g-2 mt-3">
+      <div class="col-md-4">
+        <div class="mini-kpi">
+          <div class="label">Today PnL</div>
+          <div id="kToday" class="value">—</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="mini-kpi">
+          <div class="label">Total PnL (Sum of days)</div>
+          <div id="kSum" class="value">—</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="mini-kpi">
+          <div class="label">Overall Change (first→latest)</div>
+          <div id="kOverall" class="value">—</div>
+        </div>
+      </div>
+    </div>
+
     <div id="dpMsg" class="mt-3">Loading…</div>
 
     <div class="table-responsive mt-3">
@@ -42,6 +64,18 @@
     return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
   }
 
+  function pnlClass(x){
+    x = Number(x || 0);
+    return x > 0 ? "pnl-pos" : (x < 0 ? "pnl-neg" : "pnl-zero");
+  }
+
+  function setKpi(elId, value){
+    const el = document.getElementById(elId);
+    el.textContent = fmt(value);
+    el.classList.remove("pnl-pos","pnl-neg","pnl-zero");
+    el.classList.add(pnlClass(value));
+  }
+
   (async function(){
     const msg = document.getElementById("dpMsg");
     const tbl = document.getElementById("dpTable");
@@ -57,19 +91,20 @@
         return;
       }
 
+      setKpi("kToday", data.today_pnl || 0);
+      setKpi("kSum", data.total_pnl_sum || 0);
+      setKpi("kOverall", data.overall_change || 0);
+
       const rows = data.days || [];
       tb.innerHTML = "";
 
       for (const d of rows) {
-        const pnl = Number(d.pnl || 0);
-        const pnlCls = pnl > 0 ? "pnl-pos" : (pnl < 0 ? "pnl-neg" : "pnl-zero");
-
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${d.day}</td>
           <td class="text-end">${fmt(d.opening_net_liq)}</td>
           <td class="text-end">${fmt(d.last_net_liq)}</td>
-          <td class="text-end ${pnlCls}">${fmt(d.pnl)}</td>
+          <td class="text-end ${pnlClass(d.pnl)}">${fmt(d.pnl)}</td>
           <td>${d.updated_at}</td>
         `;
         tb.appendChild(tr);

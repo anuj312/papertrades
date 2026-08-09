@@ -40,12 +40,30 @@ def daily_pnl_page(request: Request):
         "request": request,
         "market_open": market_is_open_ist(),
     })
+
+
 @app.get("/api/daily-pnl")
 def api_daily_pnl():
     try:
-        return {"ok": True, "days": db.get_daily_pnl(60)}
+        rows = db.get_daily_pnl(3650)  # ~10 years
+        total_pnl_sum = sum(float(r["pnl"]) for r in rows) if rows else 0.0
+
+        # overall change from first opening to latest last (best “total”)
+        overall_change = 0.0
+        if rows:
+            newest = rows[0]
+            oldest = rows[-1]
+            overall_change = float(newest["last_net_liq"]) - float(oldest["opening_net_liq"])
+
+        return {
+            "ok": True,
+            "days": rows,
+            "total_pnl_sum": float(total_pnl_sum),
+            "overall_change": float(overall_change),
+            "count": len(rows),
+        }
     except Exception as e:
-        raise HTTPException(503, f"DB error: {e}")        
+        raise HTTPException(503, f"DB error: {e}")     
 
 
 # ---------------- Pages ----------------
