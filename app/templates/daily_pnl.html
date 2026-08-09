@@ -9,12 +9,15 @@
         <div class="dp-subtitle">Saved in Neon Postgres</div>
       </div>
 
-      <span class="badge text-bg-{{ 'success' if market_open else 'secondary' }}">
-        {{ 'Market Open' if market_open else 'Market Closed' }}
-      </span>
+      <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-outline-light btn-sm" id="btnDpRefresh" type="button">Refresh</button>
+        <span class="badge text-bg-{{ 'success' if market_open else 'secondary' }}">
+          {{ 'Market Open' if market_open else 'Market Closed' }}
+        </span>
+      </div>
     </div>
 
-    <!-- Totals -->
+    <!-- KPIs -->
     <div class="row g-2 mt-3">
       <div class="col-md-3">
         <div class="mini-kpi">
@@ -42,8 +45,14 @@
       </div>
     </div>
 
-    <div id="dpMsg" class="mt-3">Loading…</div>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+      <div id="dpMsg" class="text-secondary small">Loading…</div>
+      <div class="text-secondary small">
+        Auto refresh: <span id="dpAuto">10s</span> • Last fetch: <span id="dpLast">—</span>
+      </div>
+    </div>
 
+    <!-- Table -->
     <div class="table-responsive mt-3">
       <table class="table table-dark table-sm align-middle" id="dpTable" style="display:none;">
         <thead>
@@ -67,6 +76,8 @@
 
 {% block scripts %}
 <script>
+  const AUTO_MS = 10000;
+
   function fmt(x){
     x = Number(x || 0);
     return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -77,34 +88,34 @@
     return x > 0 ? "pnl-pos" : (x < 0 ? "pnl-neg" : "pnl-zero");
   }
 
-  function setKpi(elId, value){
+  function setKpi(elId, value, allowDash=false){
     const el = document.getElementById(elId);
-    el.textContent = fmt(value);
-    el.classList.remove("pnl-pos","pnl-neg","pnl-zero");
-    el.classList.add(pnlClass(value));
-  }
-
-  function setKpiMaybe(elId, value){
-    const el = document.getElementById(elId);
-    if (value === null || value === undefined || value === "") {
+    if (allowDash && (value === null || value === undefined || value === "")) {
       el.textContent = "—";
       el.classList.remove("pnl-pos","pnl-neg","pnl-zero");
       el.classList.add("pnl-zero");
       return;
     }
-    setKpi(elId, value);
+
+    el.textContent = fmt(value);
+    el.classList.remove("pnl-pos","pnl-neg","pnl-zero");
+    el.classList.add(pnlClass(value));
   }
 
-  (async function(){
+  async function loadDailyPnl() {
     const msg = document.getElementById("dpMsg");
     const tbl = document.getElementById("dpTable");
     const tb  = tbl.querySelector("tbody");
 
     try {
-      const r = await fetch("/api/daily-pnl");
+      msg.textContent = "Loading…";
+
+      const r = await fetch("/api/daily-pnl", { cache: "no-store" });
       const data = await r.json();
 
-      if (!data.ok) {
+      document.getElementById("dpLast").textContent = new Date().toLocaleTimeString();
+
+      if (!r.ok || !data.ok) {
         msg.textContent = "Failed to load.";
         tbl.style.display = "none";
         return;
@@ -114,22 +125,18 @@
       setKpi("kSum", data.total_pnl_sum || 0);
       setKpi("kOverall", data.overall_change || 0);
 
-      // today shared realized: find today's row
+      // today's shared realized from today row
       const today = data.today;
-      const todayRow = (data.days || []).find(x => x.day === today);
-      setKpiMaybe("kShared", todayRow ? todayRow.shared_realized_pnl : null);
-
       const rows = data.days || [];
-      tb.innerHTML = "";
+      const todayRow = rows.find(x => x.day === today);
+      setKpi("kShared", todayRow ? todayRow.shared_realized_pnl : null, true);
 
+      tb.innerHTML = "";
       for (const d of rows) {
         const sharedVal = (d.shared_realized_pnl === null || d.shared_realized_pnl === undefined)
-          ? "—"
-          : fmt(d.shared_realized_pnl);
-
+          ? "—" : fmt(d.shared_realized_pnl);
         const sharedCls = (d.shared_realized_pnl === null || d.shared_realized_pnl === undefined)
-          ? "pnl-zero"
-          : pnlClass(d.shared_realized_pnl);
+          ? "pnl-zero" : pnlClass(d.shared_realized_pnl);
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -139,7 +146,7 @@
           <td class="text-end ${pnlClass(d.pnl)}">${fmt(d.pnl)}</td>
           <td class="text-end ${sharedCls}">${sharedVal}</td>
           <td>${d.shared_at || "—"}</td>
-          <td>${d.updated_at}</td>
+          <td>${d.updated_at || "—"}</td>
         `;
         tb.appendChild(tr);
       }
@@ -153,8 +160,14 @@
       }
     } catch (e) {
       msg.textContent = "Error: " + e;
-      tbl.style.display = "none";
+      document.getElementById("dpTable").style.display = "none";
     }
-  })();
+  }
+
+  document.getElementById("btnDpRefresh").addEventListener("click", loadDailyPnl);
+
+  // initial + interval
+  loadDailyPnl();
+  setInterval(loadDailyPnl, AUTO_MS);
 </script>
 {% endblock %}
