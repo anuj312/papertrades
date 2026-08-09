@@ -1,5 +1,6 @@
 // app/static/app.js
 
+// ===================== Helpers =====================
 async function jget(url) {
   const r = await fetch(url, { cache: "no-store" });
   if (!r.ok) throw new Error(await r.text());
@@ -56,7 +57,9 @@ function showDashMsg(html) {
   const el = document.getElementById("dashMsg");
   if (!el) return;
   el.innerHTML = html;
-  setTimeout(() => { el.innerHTML = ""; }, 3000);
+  setTimeout(() => {
+    el.innerHTML = "";
+  }, 3000);
 }
 
 // ---------------- Pretty labels for NFO options (used in search + modal) ----------------
@@ -69,9 +72,13 @@ function fmtStrike(x) {
 
 // Fix for 26AUG14 parsing: split by stripping "<strike><CE/PE>" suffix
 function parseOptCodeFromTS(tradingsymbol, strike, optType, name) {
-  const ts = String(tradingsymbol || "").toUpperCase().replace(/\s+/g, "");
+  const ts = String(tradingsymbol || "")
+    .toUpperCase()
+    .replace(/\s+/g, "");
   const type = String(optType || "").toUpperCase();
-  const under = String(name || "").toUpperCase().replace(/\s+/g, "");
+  const under = String(name || "")
+    .toUpperCase()
+    .replace(/\s+/g, "");
 
   const strikeNum = Number(strike);
   const strikeStrs = [];
@@ -123,18 +130,18 @@ async function refreshDashboard() {
   const data = await jget("/api/dashboard");
 
   document.getElementById("kCash").textContent = "₹ " + fmtNum(data.cash);
-  document.getElementById("kUnr").textContent  = "₹ " + fmtNum(data.unrealized);
-  document.getElementById("kRel").textContent  = "₹ " + fmtNum(data.realized);
-  document.getElementById("kNet").textContent  = "₹ " + fmtNum(data.net_liq);
+  document.getElementById("kUnr").textContent = "₹ " + fmtNum(data.unrealized);
+  document.getElementById("kRel").textContent = "₹ " + fmtNum(data.realized);
+  document.getElementById("kNet").textContent = "₹ " + fmtNum(data.net_liq);
 
   setPnLClass(document.getElementById("kUnr"), data.unrealized);
   setPnLClass(document.getElementById("kRel"), data.realized);
 
-  // Positions (remove exchange prefix + add RET%)
+  // Positions
   const tb = document.querySelector("#posTable tbody");
   tb.innerHTML = "";
 
-  for (const p of (data.positions || [])) {
+  for (const p of data.positions || []) {
     const rawSym = String(p.symbol || "");
     const dispSym = rawSym.includes(":") ? rawSym.split(":").pop() : rawSym;
 
@@ -161,7 +168,6 @@ async function refreshDashboard() {
       </td>
     `;
 
-    // Color RET% and P&L
     setPnLClass(tr.querySelector("td:nth-child(5)"), retPct);
     setPnLClass(tr.querySelector("td:nth-child(6)"), pnl);
 
@@ -171,7 +177,7 @@ async function refreshDashboard() {
   // Orders
   const ob = document.querySelector("#ordTable tbody");
   ob.innerHTML = "";
-  for (const o of (data.orders || [])) {
+  for (const o of data.orders || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${o.id}</td>
@@ -188,7 +194,7 @@ async function refreshDashboard() {
   // Trades
   const th = document.querySelector("#trdTable tbody");
   th.innerHTML = "";
-  for (const t of (data.trades || [])) {
+  for (const t of data.trades || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${t.id}</td>
@@ -289,7 +295,7 @@ function initDashboardQuickTrade() {
     try {
       const q = await jget(`/api/quote/${selected.instrument_id}`);
       lastQuote = q;
-      if (mLtp) mLtp.textContent = (q.ltp == null ? "—" : Number(q.ltp).toFixed(2));
+      if (mLtp) mLtp.textContent = q.ltp == null ? "—" : Number(q.ltp).toFixed(2);
       if (mMkt) mMkt.textContent = q.market_open ? "Market open (live quotes)" : "Market closed (last quote if available)";
       updateCapUI();
     } catch {
@@ -327,7 +333,7 @@ function initDashboardQuickTrade() {
       return;
     }
 
-    for (const it of (items || [])) {
+    for (const it of items || []) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "list-group-item list-group-item-action bg-dark text-light border-secondary";
@@ -407,8 +413,8 @@ async function initTrade() {
 
   const qtyPerLot = document.getElementById("qtyPerLot");
   const capPerLot = document.getElementById("capPerLot");
-  const qtyOrder  = document.getElementById("qtyOrder");
-  const capOrder  = document.getElementById("capOrder");
+  const qtyOrder = document.getElementById("qtyOrder");
+  const capOrder = document.getElementById("capOrder");
 
   const instrumentId = document.getElementById("instrumentId");
   const orderForm = document.getElementById("orderForm");
@@ -449,9 +455,7 @@ async function initTrade() {
     capPerLot.textContent = fmtINR(ltp * perLotQty);
 
     qtyOrder.textContent = String(ordQty);
-    capOrder.textContent = side === "SELL"
-      ? `${fmtINR(ltp * ordQty)} (credit)`
-      : fmtINR(ltp * ordQty);
+    capOrder.textContent = side === "SELL" ? `${fmtINR(ltp * ordQty)} (credit)` : fmtINR(ltp * ordQty);
   }
 
   const doSearch = debounce(async () => {
@@ -460,7 +464,7 @@ async function initTrade() {
     if (q.length < 2) return;
 
     const items = await jget(`/api/search?q=${encodeURIComponent(q)}`);
-    for (const it of (items || [])) {
+    for (const it of items || []) {
       const b = document.createElement("button");
       b.className = "list-group-item list-group-item-action bg-dark text-light border-secondary";
       b.type = "button";
@@ -490,16 +494,18 @@ async function initTrade() {
   lotsInp.addEventListener("input", updateCapitalUI);
   sideSel.addEventListener("change", updateCapitalUI);
 
+  // Quote poll
   setInterval(async () => {
     if (!currentInstrument) return;
     const q = await jget(`/api/quote/${currentInstrument.instrument_id}`);
     lastQuote = q;
 
-    selLtp.textContent = (q.ltp == null ? "—" : Number(q.ltp).toFixed(2));
+    selLtp.textContent = q.ltp == null ? "—" : Number(q.ltp).toFixed(2);
     mktStatus.textContent = q.market_open ? "Market open (live quotes)" : "Market closed (last quote if available)";
     updateCapitalUI();
   }, 2000);
 
+  // Mini account poll
   setInterval(async () => {
     const d = await jget("/api/dashboard");
     dashCash.textContent = fmtINR(d.cash);
@@ -531,7 +537,7 @@ async function initTrade() {
   });
 }
 
-// ---------------- Boot ----------------
+// ===================== Boot =====================
 window.addEventListener("load", () => {
   const page = (window.PAPERTRADE && window.PAPERTRADE.page) || "";
 
@@ -539,8 +545,8 @@ window.addEventListener("load", () => {
     initDashboardExitHandler();
     initDashboardQuickTrade();
 
-    // ✅ Fixed 1s refresh for positions/orders/trades on dashboard.
-    // Pauses when the tab is hidden (checks every 2s while hidden).
+    // ✅ 1-second cadence: tries to start a refresh every 1000ms.
+    // If API call takes >1s, next refresh runs immediately after it finishes.
     let inFlight = false;
 
     async function loop() {
@@ -551,13 +557,17 @@ window.addEventListener("load", () => {
       if (inFlight) return;
 
       inFlight = true;
+      const t0 = performance.now();
+
       try {
         await refreshDashboard();
       } catch {
-        // ignore and continue
+        // ignore; keep looping
       } finally {
         inFlight = false;
-        setTimeout(loop, 1000); // ✅ 1 second refresh
+        const elapsed = performance.now() - t0;
+        const wait = Math.max(0, 1000 - elapsed);
+        setTimeout(loop, wait);
       }
     }
 
