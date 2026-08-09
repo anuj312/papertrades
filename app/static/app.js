@@ -108,9 +108,9 @@ function prettyLabel(it) {
     const parsed = parseOptCodeFromTS(ts, it.strike, type, name);
     let expCode = parsed?.exp || "";
     expCode = expCode.replace(/^(\d{1,2}[A-Z]{3})\d{2}$/, "$1"); // strip 2-digit year
-    const strike = fmtStrike(it.strike ?? parsed?.strike);
+    const strikeTxt = fmtStrike(it.strike ?? parsed?.strike);
     const under = name || parsed?.under || ts;
-    return `${under} ${expCode} ${strike} ${type}`.replace(/\s+/g, " ").trim();
+    return `${under} ${expCode} ${strikeTxt} ${type}`.replace(/\s+/g, " ").trim();
   }
 
   return `${exch}:${ts}`;
@@ -130,7 +130,7 @@ async function refreshDashboard() {
   setPnLClass(document.getElementById("kUnr"), data.unrealized);
   setPnLClass(document.getElementById("kRel"), data.realized);
 
-  // Positions (✅ remove NFO:/NSE: prefix + ✅ add RET%)
+  // Positions (remove exchange prefix + add RET%)
   const tb = document.querySelector("#posTable tbody");
   tb.innerHTML = "";
 
@@ -498,7 +498,7 @@ async function initTrade() {
     selLtp.textContent = (q.ltp == null ? "—" : Number(q.ltp).toFixed(2));
     mktStatus.textContent = q.market_open ? "Market open (live quotes)" : "Market closed (last quote if available)";
     updateCapitalUI();
-  }, 2000); // Render-safe
+  }, 2000);
 
   setInterval(async () => {
     const d = await jget("/api/dashboard");
@@ -539,7 +539,8 @@ window.addEventListener("load", () => {
     initDashboardExitHandler();
     initDashboardQuickTrade();
 
-    // Render-safe dynamic refresh: 1.5s for 0/1 position, else 5s. Pauses when tab hidden.
+    // ✅ Fixed 1s refresh for positions/orders/trades on dashboard.
+    // Pauses when the tab is hidden (checks every 2s while hidden).
     let inFlight = false;
 
     async function loop() {
@@ -550,17 +551,13 @@ window.addEventListener("load", () => {
       if (inFlight) return;
 
       inFlight = true;
-      let delay = 5000;
-
       try {
-        const data = await refreshDashboard();
-        const npos = data?.positions?.length ? data.positions.length : 0;
-        delay = (npos <= 1) ? 1500 : 5000;
+        await refreshDashboard();
       } catch {
-        delay = 5000;
+        // ignore and continue
       } finally {
         inFlight = false;
-        setTimeout(loop, delay);
+        setTimeout(loop, 1000); // ✅ 1 second refresh
       }
     }
 
