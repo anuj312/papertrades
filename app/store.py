@@ -14,7 +14,7 @@ import pandas as pd
 # =========================
 @dataclass
 class DemoAccount:
-    cash: float = 100000.0
+    cash: float = 1000000.0
     realized_pnl: float = 0.0
 
 

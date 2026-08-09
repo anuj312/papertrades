@@ -6,11 +6,14 @@ from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from zoneinfo import ZoneInfo
+from . import db
 
 from .kitehub import kitehub, market_is_open_ist
 from .store import store
 
 app = FastAPI(title="Paper Trading (Demo Mode)")
+IST = ZoneInfo("Asia/Kolkata")
 
 BASE_DIR = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
@@ -19,11 +22,30 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), na
 
 @app.on_event("startup")
 def startup():
+    # init db (don’t crash app if db temporarily down)
+    try:
+        db.init_db()
+    except Exception as e:
+        print("DB init failed:", e)
+
     store.load_instruments(kitehub.kite, exchanges=("NSE", "NFO"))
     try:
         kitehub.start_ws()
     except Exception:
         pass
+    
+@app.get("/daily-pnl", response_class=HTMLResponse)
+def daily_pnl_page(request: Request):
+    return templates.TemplateResponse("daily_pnl.html", {
+        "request": request,
+        "market_open": market_is_open_ist(),
+    })
+@app.get("/api/daily-pnl")
+def api_daily_pnl():
+    try:
+        return {"ok": True, "days": db.get_daily_pnl(60)}
+    except Exception as e:
+        raise HTTPException(503, f"DB error: {e}")        
 
 
 # ---------------- Pages ----------------
@@ -196,7 +218,12 @@ def api_dashboard():
             "lot": int(p.lot_size),
         })
 
-    net_liq = float(acct.cash) + float(unrealized)
+        # store today's net liq in DB (IST day)
+    try:
+        day_iso = datetime.now(IST).date().isoformat()
+        db.upsert_daily_pnl(day_iso, net_liq)
+    except Exception:
+        pass
 
     return {
         "cash": float(acct.cash),
@@ -221,4 +248,4 @@ def api_dashboard():
 @app.post("/api/reset")
 def api_reset():
     store.reset_demo()
-    return {"ok": True, "message": "Demo reset to ₹100,000"}
+    return {"ok": True, "message": "Demo reset to ₹10,00,000"}

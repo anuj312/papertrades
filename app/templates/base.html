@@ -36,6 +36,8 @@
       {% endif %}
 
       <a class="btn btn-outline-light btn-sm" href="/trade">Trade</a>
+     <a class="nav-link {% if request.url.path.startswith('/daily-pnl') %}active{% endif %}"
+   href="/daily-pnl">Daily PnL</a>
       <a class="btn btn-outline-light btn-sm" href="/dashboard">Dashboard</a>
 
       <button class="btn btn-outline-danger btn-sm" id="btnReset" type="button">Reset</button>
