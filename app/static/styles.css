@@ -367,4 +367,40 @@ body.bg-app {
 .text-danger  { text-shadow: 0 0 14px var(--color-loss-glow); }
 
 
-WDmuZ8kx5Ys9mzOy8s6yOUMw3gXXd0mT
+/* ===== Daily PnL page ===== */
+
+#dpTable th,
+#dpTable td {
+  white-space: nowrap;
+}
+
+#dpTable thead th {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+#dpTable tbody tr:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* PnL colors */
+.pnl-pos {
+  color: #35d07f !important;
+  font-weight: 800;
+}
+
+.pnl-neg {
+  color: #ff5c73 !important;
+  font-weight: 800;
+}
+
+.pnl-zero {
+  color: #adb5bd !important;
+  font-weight: 800;
+}
+
+/* Optional: make the page header area look consistent */
+.dp-subtitle {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.9rem;
+}
