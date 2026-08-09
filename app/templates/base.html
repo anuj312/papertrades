@@ -36,14 +36,16 @@
       {% endif %}
 
       <!-- Tabs -->
-      <a class="btn btn-outline-light btn-sm tab-btn {% if request.url.path.startswith('/trade') %}active{% endif %}"
-         href="/trade">Trade</a>
-
-      <a class="btn btn-outline-light btn-sm tab-btn {% if request.url.path.startswith('/daily-pnl') %}active{% endif %}"
-         href="/daily-pnl">Daily PnL</a>
 
       <a class="btn btn-outline-light btn-sm tab-btn {% if request.url.path.startswith('/dashboard') %}active{% endif %}"
          href="/dashboard">Dashboard</a>
+
+         <a class="btn btn-outline-light btn-sm tab-btn {% if request.url.path.startswith('/daily-pnl') %}active{% endif %}"
+         href="/daily-pnl">Daily PnL</a>
+
+
+      <a class="btn btn-outline-light btn-sm tab-btn {% if request.url.path.startswith('/trade') %}active{% endif %}"
+         href="/trade">Trade</a>
 
       <button class="btn btn-outline-danger btn-sm" id="btnReset" type="button">Reset</button>
 
