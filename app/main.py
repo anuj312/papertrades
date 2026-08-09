@@ -40,6 +40,36 @@ def daily_pnl_page(request: Request):
         "request": request,
         "market_open": market_is_open_ist(),
     })
+    
+@app.post("/api/daily-pnl/share")
+def api_daily_pnl_share():
+    acct = store.account
+
+    # compute unrealized quickly (same logic as dashboard)
+    unrealized = 0.0
+    for p in store.positions.values():
+        if p.net_qty == 0:
+            continue
+        ins = store.get_instrument(p.instrument_id)
+        token = int(ins.get("instrument_token") or 0) if ins else 0
+        if token:
+            kitehub.ensure_subscribed(token)
+        ltp = kitehub.ltp(p.exchange, p.tradingsymbol, token or None) or 0.0
+        unrealized += (float(ltp) - float(p.avg_price)) * int(p.net_qty)
+
+    net_liq = float(acct.cash) + float(unrealized)
+    day_iso = datetime.now(IST).date().isoformat()
+    realized = float(acct.realized_pnl)
+
+    try:
+        # ensure today's row exists + updated netliq
+        db.upsert_daily_pnl(day_iso, net_liq)
+        # save realized snapshot
+        db.set_shared_realized(day_iso, realized)
+    except Exception as e:
+        raise HTTPException(503, f"DB error: {e}")
+
+    return {"ok": True, "day": day_iso, "realized": realized, "net_liq": float(net_liq)}    
 
 
 @app.get("/api/daily-pnl")

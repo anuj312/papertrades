@@ -16,22 +16,28 @@
 
     <!-- Totals -->
     <div class="row g-2 mt-3">
-      <div class="col-md-4">
+      <div class="col-md-3">
         <div class="mini-kpi">
           <div class="label">Today PnL</div>
           <div id="kToday" class="value">—</div>
         </div>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-3">
         <div class="mini-kpi">
-          <div class="label">Total PnL (Sum of days)</div>
+          <div class="label">Total PnL (Sum)</div>
           <div id="kSum" class="value">—</div>
         </div>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-3">
         <div class="mini-kpi">
-          <div class="label">Overall Change (first→latest)</div>
+          <div class="label">Overall Change</div>
           <div id="kOverall" class="value">—</div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="mini-kpi">
+          <div class="label">Today Shared Realized</div>
+          <div id="kShared" class="value">—</div>
         </div>
       </div>
     </div>
@@ -46,6 +52,8 @@
             <th class="text-end">Opening</th>
             <th class="text-end">Last</th>
             <th class="text-end">PnL</th>
+            <th class="text-end">Shared Realized</th>
+            <th>Shared At</th>
             <th>Updated</th>
           </tr>
         </thead>
@@ -76,6 +84,17 @@
     el.classList.add(pnlClass(value));
   }
 
+  function setKpiMaybe(elId, value){
+    const el = document.getElementById(elId);
+    if (value === null || value === undefined || value === "") {
+      el.textContent = "—";
+      el.classList.remove("pnl-pos","pnl-neg","pnl-zero");
+      el.classList.add("pnl-zero");
+      return;
+    }
+    setKpi(elId, value);
+  }
+
   (async function(){
     const msg = document.getElementById("dpMsg");
     const tbl = document.getElementById("dpTable");
@@ -95,16 +114,31 @@
       setKpi("kSum", data.total_pnl_sum || 0);
       setKpi("kOverall", data.overall_change || 0);
 
+      // today shared realized: find today's row
+      const today = data.today;
+      const todayRow = (data.days || []).find(x => x.day === today);
+      setKpiMaybe("kShared", todayRow ? todayRow.shared_realized_pnl : null);
+
       const rows = data.days || [];
       tb.innerHTML = "";
 
       for (const d of rows) {
+        const sharedVal = (d.shared_realized_pnl === null || d.shared_realized_pnl === undefined)
+          ? "—"
+          : fmt(d.shared_realized_pnl);
+
+        const sharedCls = (d.shared_realized_pnl === null || d.shared_realized_pnl === undefined)
+          ? "pnl-zero"
+          : pnlClass(d.shared_realized_pnl);
+
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${d.day}</td>
           <td class="text-end">${fmt(d.opening_net_liq)}</td>
           <td class="text-end">${fmt(d.last_net_liq)}</td>
           <td class="text-end ${pnlClass(d.pnl)}">${fmt(d.pnl)}</td>
+          <td class="text-end ${sharedCls}">${sharedVal}</td>
+          <td>${d.shared_at || "—"}</td>
           <td>${d.updated_at}</td>
         `;
         tb.appendChild(tr);

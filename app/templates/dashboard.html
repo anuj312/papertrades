@@ -4,6 +4,13 @@
 {% block content %}
 <div id="dashMsg"></div>
 
+<!-- Top actions -->
+<div class="d-flex justify-content-end mb-3">
+  <button class="btn btn-outline-light btn-sm" id="btnShareRealized" type="button">
+    Share Realized PnL
+  </button>
+</div>
+
 <!-- KPIs -->
 <div class="row g-3">
   <div class="col-md-3">
@@ -181,5 +188,41 @@
 {% endblock %}
 
 {% block scripts %}
-<script>window.PAPERTRADE = { page: "dashboard" };</script>
+<script>
+  window.PAPERTRADE = { page: "dashboard" };
+
+  function fmtMoney(x){
+    x = Number(x || 0);
+    return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+
+  document.addEventListener("click", async (e) => {
+    if (!e.target || e.target.id !== "btnShareRealized") return;
+
+    const box = document.getElementById("dashMsg");
+    box.innerHTML = "";
+
+    try {
+      const r = await fetch("/api/daily-pnl/share", { method: "POST" });
+      const data = await r.json();
+
+      if (!r.ok || !data.ok) {
+        box.innerHTML = `<div class="alert alert-danger">Share failed: ${data.detail || "error"}</div>`;
+        return;
+      }
+
+      const text = `Realized PnL (${data.day}): ₹${fmtMoney(data.realized)}`;
+      box.innerHTML = `<div class="alert alert-success mb-0">Saved to Daily PnL. ${text}</div>`;
+
+      // Optional: open share sheet (mobile) or copy to clipboard
+      if (navigator.share) {
+        try { await navigator.share({ title: "Daily PnL", text }); } catch (_) {}
+      } else if (navigator.clipboard) {
+        try { await navigator.clipboard.writeText(text); } catch (_) {}
+      }
+    } catch (err) {
+      box.innerHTML = `<div class="alert alert-danger">Error: ${err}</div>`;
+    }
+  });
+</script>
 {% endblock %}
