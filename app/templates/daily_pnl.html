@@ -42,7 +42,7 @@
     return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
   }
 
-  (async function loadDailyPnl(){
+  (async function(){
     const msg = document.getElementById("dpMsg");
     const tbl = document.getElementById("dpTable");
     const tb  = tbl.querySelector("tbody");
@@ -79,7 +79,7 @@
         msg.textContent = "";
         tbl.style.display = "";
       } else {
-        msg.textContent = "No data yet. Open Dashboard once to start recording.";
+        msg.textContent = "No records yet. Open Dashboard once to start recording.";
         tbl.style.display = "none";
       }
     } catch (e) {

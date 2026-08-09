@@ -18,7 +18,7 @@
 
     <div class="ms-auto d-flex align-items-center gap-2">
 
-      {# ✅ Navbar search shown only on dashboard #}
+      {# Navbar search shown only on dashboard #}
       {% if request.url.path == "/dashboard" %}
       <div class="position-relative" style="width: 340px; max-width: 40vw;">
         <input
@@ -35,14 +35,18 @@
       </div>
       {% endif %}
 
-      <a class="btn btn-outline-light btn-sm" href="/trade">Trade</a>
-     <a class="nav-link {% if request.url.path.startswith('/daily-pnl') %}active{% endif %}"
-   href="/daily-pnl">Daily PnL</a>
-      <a class="btn btn-outline-light btn-sm" href="/dashboard">Dashboard</a>
+      <!-- Tabs -->
+      <a class="btn btn-outline-light btn-sm tab-btn {% if request.url.path.startswith('/trade') %}active{% endif %}"
+         href="/trade">Trade</a>
+
+      <a class="btn btn-outline-light btn-sm tab-btn {% if request.url.path.startswith('/daily-pnl') %}active{% endif %}"
+         href="/daily-pnl">Daily PnL</a>
+
+      <a class="btn btn-outline-light btn-sm tab-btn {% if request.url.path.startswith('/dashboard') %}active{% endif %}"
+         href="/dashboard">Dashboard</a>
 
       <button class="btn btn-outline-danger btn-sm" id="btnReset" type="button">Reset</button>
 
-      {# ✅ Market badge beside Reset (right side) #}
       <span class="badge text-bg-{{ 'success' if market_open else 'secondary' }}">
         {{ 'Market Open' if market_open else 'Market Closed' }}
       </span>
@@ -58,10 +62,9 @@
 <script src="/static/app.js"></script>
 
 <script>
-  // Reset demo (optional)
   document.addEventListener("click", async (e) => {
     if (e.target && e.target.id === "btnReset") {
-      if (!confirm("Reset demo account to ₹100,000 and clear positions/orders?")) return;
+      if (!confirm("Reset demo account to ₹10,00,000 and clear positions/orders?")) return;
       const r = await fetch("/api/reset", { method: "POST" });
       if (r.ok) location.reload();
       else alert("Reset failed");

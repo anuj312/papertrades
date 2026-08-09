@@ -417,3 +417,28 @@ body.bg-app {
   color: var(--text-muted) !important;
   font-weight: 800;
 }
+
+/* ==========================================================================
+   Navbar tab buttons (Trade / Daily PnL / Dashboard)
+   ========================================================================== */
+
+.navbar .tab-btn {
+  border-color: var(--border-subtle) !important;
+  color: var(--text-muted) !important;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.navbar .tab-btn:hover {
+  color: var(--text-main) !important;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+/* Active tab = branded */
+.navbar .tab-btn.active,
+.navbar .tab-btn:active {
+  color: #fff !important;
+  border-color: transparent !important;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-primary-hover) 100%) !important;
+  box-shadow: 0 6px 18px var(--accent-glow);
+}
