@@ -1,71 +1,91 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Daily PnL</title>
-  <style>
-    body { font-family: system-ui, Arial; margin: 20px; }
-    nav a { margin-right: 12px; }
-    table { border-collapse: collapse; margin-top: 12px; }
-    th, td { border: 1px solid #ddd; padding: 8px 10px; }
-    th { background: #f5f5f5; }
-  </style>
-</head>
-<body>
-  <nav>
-    <a href="/trade">Trade</a>
-    <a href="/dashboard">Performance</a>
-    <a href="/daily-pnl">Daily PnL</a>
-  </nav>
+{% extends "base.html" %}
 
-  <h2>Daily PnL (saved in DB)</h2>
+{% block content %}
+<div class="card card-glass">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start">
+      <div>
+        <h5 class="fw-bold mb-1">Daily PnL</h5>
+        <div class="dp-subtitle">Saved in Neon Postgres</div>
+      </div>
 
-  <div id="status">Loading...</div>
+      <span class="badge text-bg-{{ 'success' if market_open else 'secondary' }}">
+        {{ 'Market Open' if market_open else 'Market Closed' }}
+      </span>
+    </div>
 
-  <table id="tbl" style="display:none;">
-    <thead>
-      <tr>
-        <th>Day (IST)</th>
-        <th>Opening NetLiq</th>
-        <th>Last NetLiq</th>
-        <th>PnL</th>
-        <th>Updated</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+    <div id="dpMsg" class="mt-3">Loading…</div>
 
-  <script>
-    function fmt(x){ return (x ?? 0).toLocaleString(undefined,{maximumFractionDigits:2}); }
+    <div class="table-responsive mt-3">
+      <table class="table table-dark table-sm align-middle" id="dpTable" style="display:none;">
+        <thead>
+          <tr>
+            <th>Day (IST)</th>
+            <th class="text-end">Opening</th>
+            <th class="text-end">Last</th>
+            <th class="text-end">PnL</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
 
-    async function load() {
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function fmt(x){
+    x = Number(x || 0);
+    return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+
+  (async function loadDailyPnl(){
+    const msg = document.getElementById("dpMsg");
+    const tbl = document.getElementById("dpTable");
+    const tb  = tbl.querySelector("tbody");
+
+    try {
       const r = await fetch("/api/daily-pnl");
       const data = await r.json();
 
       if (!data.ok) {
-        document.getElementById("status").textContent = "Failed";
+        msg.textContent = "Failed to load.";
+        tbl.style.display = "none";
         return;
       }
 
       const rows = data.days || [];
-      const tb = document.querySelector("#tbl tbody");
       tb.innerHTML = "";
+
       for (const d of rows) {
+        const pnl = Number(d.pnl || 0);
+        const pnlCls = pnl > 0 ? "pnl-pos" : (pnl < 0 ? "pnl-neg" : "pnl-zero");
+
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${d.day}</td>
-          <td>${fmt(d.opening_net_liq)}</td>
-          <td>${fmt(d.last_net_liq)}</td>
-          <td>${fmt(d.pnl)}</td>
+          <td class="text-end">${fmt(d.opening_net_liq)}</td>
+          <td class="text-end">${fmt(d.last_net_liq)}</td>
+          <td class="text-end ${pnlCls}">${fmt(d.pnl)}</td>
           <td>${d.updated_at}</td>
         `;
         tb.appendChild(tr);
       }
 
-      document.getElementById("status").textContent = rows.length ? "" : "No data yet.";
-      document.getElementById("tbl").style.display = rows.length ? "" : "none";
+      if (rows.length) {
+        msg.textContent = "";
+        tbl.style.display = "";
+      } else {
+        msg.textContent = "No data yet. Open Dashboard once to start recording.";
+        tbl.style.display = "none";
+      }
+    } catch (e) {
+      msg.textContent = "Error: " + e;
+      tbl.style.display = "none";
     }
-    load();
-  </script>
-</body>
-</html>
+  })();
+</script>
+{% endblock %}
