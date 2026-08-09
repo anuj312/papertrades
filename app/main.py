@@ -206,7 +206,7 @@ def api_dashboard():
 
         ltp = kitehub.ltp(p.exchange, p.tradingsymbol, token or None) or 0.0
         pnl = (float(ltp) - float(p.avg_price)) * int(p.net_qty)
-        unrealized += pnl
+        unrealized += float(pnl)
 
         pos_rows.append({
             "instrument_id": int(p.instrument_id),
@@ -218,12 +218,15 @@ def api_dashboard():
             "lot": int(p.lot_size),
         })
 
-        # store today's net liq in DB (IST day)
+    # ✅ DEFINE net_liq HERE (this fixes your NameError)
+    net_liq = float(acct.cash) + float(unrealized)
+
+    # ✅ Save today's netliq to Neon (don’t crash dashboard if DB is down)
     try:
         day_iso = datetime.now(IST).date().isoformat()
         db.upsert_daily_pnl(day_iso, net_liq)
-    except Exception:
-        pass
+    except Exception as e:
+        print("Daily PnL DB write failed:", e)
 
     return {
         "cash": float(acct.cash),
