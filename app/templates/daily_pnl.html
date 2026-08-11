@@ -27,22 +27,40 @@
           <div id="kToday" class="value">—</div>
         </div>
       </div>
+
       <div class="col-md-3">
         <div class="mini-kpi">
           <div class="label">Total PnL (Sum)</div>
           <div id="kSum" class="value">—</div>
         </div>
       </div>
+
       <div class="col-md-3">
         <div class="mini-kpi">
           <div class="label">Overall Change</div>
           <div id="kOverall" class="value">—</div>
         </div>
       </div>
+
       <div class="col-md-3">
         <div class="mini-kpi">
           <div class="label">Today Shared Realized</div>
           <div id="kShared" class="value">—</div>
+        </div>
+      </div>
+
+      <!-- ✅ NEW KPIs -->
+      <div class="col-md-3">
+        <div class="mini-kpi">
+          <div class="label">Total Shared Sum</div>
+          <div id="kSharedSum" class="value">—</div>
+        </div>
+      </div>
+
+      <div class="col-md-3">
+        <div class="mini-kpi">
+          <div class="label">Total Charges Sum</div>
+          <div id="kChargesSum" class="value">—</div>
         </div>
       </div>
     </div>
@@ -65,6 +83,8 @@
             <th class="text-end">PnL</th>
             <th class="text-end">Shared Realized</th>
             <th>Shared At</th>
+            <!-- ✅ NEW column beside Shared At -->
+            <th class="text-end">Charges</th>
             <th>Updated</th>
           </tr>
         </thead>
@@ -90,7 +110,13 @@
     return x > 0 ? "pnl-pos" : (x < 0 ? "pnl-neg" : "pnl-zero");
   }
 
-  function setKpi(elId, value, allowDash=false){
+  // Charges should look like a cost (red if > 0)
+  function chargeClass(x){
+    x = Number(x || 0);
+    return x > 0 ? "pnl-neg" : "pnl-zero";
+  }
+
+  function setKpi(elId, value, clsFn, allowDash=false){
     const el = document.getElementById(elId);
 
     if (allowDash && (value === null || value === undefined || value === "")) {
@@ -102,7 +128,7 @@
 
     el.textContent = fmt(value);
     el.classList.remove("pnl-pos","pnl-neg","pnl-zero");
-    el.classList.add(pnlClass(value));
+    el.classList.add(clsFn(value));
   }
 
   async function loadDailyPnl() {
@@ -124,15 +150,21 @@
         return;
       }
 
-      setKpi("kToday", data.today_pnl || 0);
-      setKpi("kSum", data.total_pnl_sum || 0);
-      setKpi("kOverall", data.overall_change || 0);
+      // KPIs
+      setKpi("kToday", data.today_pnl || 0, pnlClass);
+      setKpi("kSum", data.total_pnl_sum || 0, pnlClass);
+      setKpi("kOverall", data.overall_change || 0, pnlClass);
+
+      // total sums (new)
+      setKpi("kSharedSum", data.total_shared_sum || 0, pnlClass);
+      setKpi("kChargesSum", data.total_charges_sum || 0, chargeClass);
 
       const rows = data.days || [];
       const today = data.today;
       const todayRow = rows.find(x => x.day === today);
-      setKpi("kShared", todayRow ? todayRow.shared_realized_pnl : null, true);
+      setKpi("kShared", todayRow ? todayRow.shared_realized_pnl : null, pnlClass, true);
 
+      // table
       tb.innerHTML = "";
       for (const d of rows) {
         const sharedVal = (d.shared_realized_pnl === null || d.shared_realized_pnl === undefined)
@@ -140,6 +172,8 @@
 
         const sharedCls = (d.shared_realized_pnl === null || d.shared_realized_pnl === undefined)
           ? "pnl-zero" : pnlClass(d.shared_realized_pnl);
+
+        const charges = Number(d.day_charges || 0);
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -149,6 +183,7 @@
           <td class="text-end ${pnlClass(d.pnl)}">${fmt(d.pnl)}</td>
           <td class="text-end ${sharedCls}">${sharedVal}</td>
           <td>${d.shared_at || "—"}</td>
+          <td class="text-end ${chargeClass(charges)}">${fmt(charges)}</td>
           <td>${d.updated_at || "—"}</td>
         `;
         tb.appendChild(tr);
@@ -162,14 +197,13 @@
         tbl.style.display = "none";
       }
     } catch (e) {
-      document.getElementById("dpMsg").textContent = "Error: " + e;
+      msg.textContent = "Error: " + e;
       document.getElementById("dpTable").style.display = "none";
     }
   }
 
   async function resetDb() {
-    if (!confirm("This will DELETE all Daily PnL history from DB. Continue?")) return;
-
+    if (!confirm("This will DELETE all Daily PnL history from Neon DB. Continue?")) return;
     const token = prompt("Enter ADMIN_TOKEN:");
     if (!token) return;
 

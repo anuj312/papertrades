@@ -8,8 +8,6 @@ def db_url() -> str:
     url = os.environ.get("DATABASE_URL", "").strip()
     if not url:
         raise RuntimeError("DATABASE_URL env var is missing")
-
-    # normalize if someone provides postgres://
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://"):]
     return url
@@ -17,7 +15,7 @@ def db_url() -> str:
 
 def init_db() -> None:
     """
-    Creates daily_pnl table and adds new columns safely (if upgrading).
+    Create/upgrade table.
     """
     with psycopg2.connect(db_url(), connect_timeout=5) as conn:
         with conn.cursor() as cur:
@@ -27,21 +25,24 @@ def init_db() -> None:
                   opening_net_liq double precision NOT NULL,
                   last_net_liq double precision NOT NULL,
                   pnl double precision NOT NULL,
-                  updated_at timestamptz NOT NULL DEFAULT now()
+                  updated_at timestamptz NOT NULL DEFAULT now(),
+                  shared_realized_pnl double precision,
+                  shared_at timestamptz
                 );
             """)
 
-            # optional fields used by "Share Realized PnL"
+            # ✅ NEW: charges per day (safe upgrade)
+            cur.execute(
+                "ALTER TABLE daily_pnl "
+                "ADD COLUMN IF NOT EXISTS day_charges double precision NOT NULL DEFAULT 0;"
+            )
+
+            # keep these safe upgrades too (if you already had them, no harm)
             cur.execute("ALTER TABLE daily_pnl ADD COLUMN IF NOT EXISTS shared_realized_pnl double precision;")
             cur.execute("ALTER TABLE daily_pnl ADD COLUMN IF NOT EXISTS shared_at timestamptz;")
 
 
 def upsert_daily_pnl(day_iso: str, net_liq: float) -> None:
-    """
-    Ensures today's row exists.
-    - First insert sets opening_net_liq = last_net_liq = net_liq
-    - Later updates set last_net_liq and recompute pnl
-    """
     sql = """
     INSERT INTO daily_pnl(day, opening_net_liq, last_net_liq, pnl)
     VALUES (%s::date, %s, %s, 0)
@@ -56,9 +57,6 @@ def upsert_daily_pnl(day_iso: str, net_liq: float) -> None:
 
 
 def set_shared_realized(day_iso: str, realized: float) -> None:
-    """
-    Stores a snapshot of realized PnL for that day (when you click Share).
-    """
     sql = """
     UPDATE daily_pnl
     SET shared_realized_pnl = %s,
@@ -70,13 +68,14 @@ def set_shared_realized(day_iso: str, realized: float) -> None:
             cur.execute(sql, (float(realized), day_iso))
 
 
-def get_daily_pnl(limit: int = 60):
+def get_daily_pnl(limit: int = 3650):
     sql = """
     SELECT
       day::text as day,
       opening_net_liq,
       last_net_liq,
       pnl,
+      day_charges,
       updated_at,
       shared_realized_pnl,
       shared_at
@@ -91,9 +90,6 @@ def get_daily_pnl(limit: int = 60):
 
 
 def reset_daily_pnl() -> None:
-    """
-    Deletes all Daily PnL history.
-    """
     with psycopg2.connect(db_url(), connect_timeout=5) as conn:
         with conn.cursor() as cur:
             cur.execute("TRUNCATE TABLE daily_pnl;")
