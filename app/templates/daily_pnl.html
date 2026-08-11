@@ -11,6 +11,8 @@
 
       <div class="d-flex align-items-center gap-2">
         <button class="btn btn-outline-light btn-sm" id="btnDpRefresh" type="button">Refresh</button>
+        <button class="btn btn-outline-danger btn-sm" id="btnDpResetDb" type="button">Reset DB</button>
+
         <span class="badge text-bg-{{ 'success' if market_open else 'secondary' }}">
           {{ 'Market Open' if market_open else 'Market Closed' }}
         </span>
@@ -90,6 +92,7 @@
 
   function setKpi(elId, value, allowDash=false){
     const el = document.getElementById(elId);
+
     if (allowDash && (value === null || value === undefined || value === "")) {
       el.textContent = "—";
       el.classList.remove("pnl-pos","pnl-neg","pnl-zero");
@@ -111,7 +114,7 @@
       msg.textContent = "Loading…";
 
       const r = await fetch("/api/daily-pnl", { cache: "no-store" });
-      const data = await r.json();
+      const data = await r.json().catch(() => ({}));
 
       document.getElementById("dpLast").textContent = new Date().toLocaleTimeString();
 
@@ -125,9 +128,8 @@
       setKpi("kSum", data.total_pnl_sum || 0);
       setKpi("kOverall", data.overall_change || 0);
 
-      // today's shared realized from today row
-      const today = data.today;
       const rows = data.days || [];
+      const today = data.today;
       const todayRow = rows.find(x => x.day === today);
       setKpi("kShared", todayRow ? todayRow.shared_realized_pnl : null, true);
 
@@ -135,6 +137,7 @@
       for (const d of rows) {
         const sharedVal = (d.shared_realized_pnl === null || d.shared_realized_pnl === undefined)
           ? "—" : fmt(d.shared_realized_pnl);
+
         const sharedCls = (d.shared_realized_pnl === null || d.shared_realized_pnl === undefined)
           ? "pnl-zero" : pnlClass(d.shared_realized_pnl);
 
@@ -159,14 +162,35 @@
         tbl.style.display = "none";
       }
     } catch (e) {
-      msg.textContent = "Error: " + e;
+      document.getElementById("dpMsg").textContent = "Error: " + e;
       document.getElementById("dpTable").style.display = "none";
     }
   }
 
-  document.getElementById("btnDpRefresh").addEventListener("click", loadDailyPnl);
+  async function resetDb() {
+    if (!confirm("This will DELETE all Daily PnL history from DB. Continue?")) return;
 
-  // initial + interval
+    const token = prompt("Enter ADMIN_TOKEN:");
+    if (!token) return;
+
+    const fd = new FormData();
+    fd.append("admin_token", token);
+
+    const r = await fetch("/api/daily-pnl/reset", { method: "POST", body: fd });
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok || !data.ok) {
+      alert("Reset failed: " + (data.detail || "error"));
+      return;
+    }
+
+    alert("Daily PnL DB cleared");
+    await loadDailyPnl();
+  }
+
+  document.getElementById("btnDpRefresh").addEventListener("click", loadDailyPnl);
+  document.getElementById("btnDpResetDb").addEventListener("click", resetDb);
+
   loadDailyPnl();
   setInterval(loadDailyPnl, AUTO_MS);
 </script>
