@@ -1,6 +1,5 @@
-# app/main.py
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request, Form, HTTPException
@@ -278,8 +277,6 @@ def api_daily_pnl():
             "today_pnl": float(today_row["pnl"]) if today_row else 0.0,
             "total_pnl_sum": float(total_pnl_sum),
             "overall_change": float(overall_change),
-
-            # NEW
             "total_shared_sum": float(total_shared_sum),
             "total_charges_sum": float(total_charges_sum),
         }
@@ -290,7 +287,10 @@ def api_daily_pnl():
 @app.post("/api/daily-pnl/share")
 def api_daily_pnl_share():
     """
-    Saves today's realized PnL snapshot to daily_pnl.shared_realized_pnl
+    Saves today's snapshot:
+      - shared_realized_pnl
+      - shared_symbols  (symbols traded today)
+      - shared_money_used (today turnover: sum(abs(qty*price)) for today)
     """
     acct = store.account
 
@@ -310,13 +310,39 @@ def api_daily_pnl_share():
     realized = float(acct.realized_pnl)
     day_iso = datetime.now(IST).date().isoformat()
 
+    # --- NEW: compute today's traded symbols + money used (turnover) ---
+    today_date = datetime.now(IST).date()
+    trades_today = []
+    for t in store.trades:
+        # store uses UTC naive timestamps; treat as UTC and convert to IST date
+        t_ist_date = t.traded_at.replace(tzinfo=timezone.utc).astimezone(IST).date()
+        if t_ist_date == today_date:
+            trades_today.append(t)
+
+    seen = set()
+    uniq_symbols = []
+    for t in trades_today:
+        if t.symbol not in seen:
+            uniq_symbols.append(t.symbol)
+            seen.add(t.symbol)
+
+    shared_symbols = ", ".join(uniq_symbols)
+    shared_money_used = sum(abs(float(t.qty) * float(t.price)) for t in trades_today)
+
     try:
-        db.upsert_daily_pnl(day_iso, net_liq)       # ensure row exists
-        db.set_shared_realized(day_iso, realized)   # snapshot
+        db.upsert_daily_pnl(day_iso, net_liq)  # ensure row exists
+        db.set_shared_snapshot(day_iso, realized, shared_symbols, shared_money_used)
     except Exception as e:
         raise HTTPException(503, f"DB error: {e}")
 
-    return {"ok": True, "day": day_iso, "realized": realized, "net_liq": float(net_liq)}
+    return {
+        "ok": True,
+        "day": day_iso,
+        "realized": realized,
+        "net_liq": float(net_liq),
+        "shared_symbols": shared_symbols,
+        "shared_money_used": float(shared_money_used),
+    }
 
 
 @app.post("/api/daily-pnl/reset")

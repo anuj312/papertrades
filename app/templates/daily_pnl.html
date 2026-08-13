@@ -49,7 +49,6 @@
         </div>
       </div>
 
-      <!-- ✅ NEW KPIs -->
       <div class="col-md-3">
         <div class="mini-kpi">
           <div class="label">Total Shared Sum</div>
@@ -61,6 +60,21 @@
         <div class="mini-kpi">
           <div class="label">Total Charges Sum</div>
           <div id="kChargesSum" class="value">—</div>
+        </div>
+      </div>
+
+      <!-- Optional extra KPIs (if you want) -->
+      <div class="col-md-3">
+        <div class="mini-kpi">
+          <div class="label">Today Money Used</div>
+          <div id="kMoneyUsed" class="value">—</div>
+        </div>
+      </div>
+
+      <div class="col-md-3">
+        <div class="mini-kpi">
+          <div class="label">Today Stock Name</div>
+          <div id="kSymbols" class="value" style="font-size: 0.95rem;">—</div>
         </div>
       </div>
     </div>
@@ -78,12 +92,11 @@
         <thead>
           <tr>
             <th>Day (IST)</th>
-            <th class="text-end">Opening</th>
-            <th class="text-end">Last</th>
+            <th>Stock Name</th>
+            <th class="text-end">Money Used</th>
             <th class="text-end">PnL</th>
             <th class="text-end">Shared Realized</th>
             <th>Shared At</th>
-            <!-- ✅ NEW column beside Shared At -->
             <th class="text-end">Charges</th>
             <th>Updated</th>
           </tr>
@@ -118,6 +131,7 @@
 
   function setKpi(elId, value, clsFn, allowDash=false){
     const el = document.getElementById(elId);
+    if (!el) return;
 
     if (allowDash && (value === null || value === undefined || value === "")) {
       el.textContent = "—";
@@ -129,6 +143,13 @@
     el.textContent = fmt(value);
     el.classList.remove("pnl-pos","pnl-neg","pnl-zero");
     el.classList.add(clsFn(value));
+  }
+
+  function setText(elId, txt){
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const s = (txt && String(txt).trim()) ? String(txt) : "—";
+    el.textContent = s;
   }
 
   async function loadDailyPnl() {
@@ -155,17 +176,24 @@
       setKpi("kSum", data.total_pnl_sum || 0, pnlClass);
       setKpi("kOverall", data.overall_change || 0, pnlClass);
 
-      // total sums (new)
+      // totals (new)
       setKpi("kSharedSum", data.total_shared_sum || 0, pnlClass);
       setKpi("kChargesSum", data.total_charges_sum || 0, chargeClass);
 
       const rows = data.days || [];
       const today = data.today;
       const todayRow = rows.find(x => x.day === today);
+
+      // Today Shared Realized
       setKpi("kShared", todayRow ? todayRow.shared_realized_pnl : null, pnlClass, true);
+
+      // Optional: show today stock name + money used in KPIs
+      setText("kSymbols", todayRow ? todayRow.shared_symbols : "");
+      setKpi("kMoneyUsed", todayRow ? todayRow.shared_money_used : null, pnlClass, true);
 
       // table
       tb.innerHTML = "";
+
       for (const d of rows) {
         const sharedVal = (d.shared_realized_pnl === null || d.shared_realized_pnl === undefined)
           ? "—" : fmt(d.shared_realized_pnl);
@@ -174,12 +202,14 @@
           ? "pnl-zero" : pnlClass(d.shared_realized_pnl);
 
         const charges = Number(d.day_charges || 0);
+        const moneyUsed = Number(d.shared_money_used || 0);
+        const symbols = (d.shared_symbols && String(d.shared_symbols).trim()) ? d.shared_symbols : "—";
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${d.day}</td>
-          <td class="text-end">${fmt(d.opening_net_liq)}</td>
-          <td class="text-end">${fmt(d.last_net_liq)}</td>
+          <td style="max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${symbols}">${symbols}</td>
+          <td class="text-end">${fmt(moneyUsed)}</td>
           <td class="text-end ${pnlClass(d.pnl)}">${fmt(d.pnl)}</td>
           <td class="text-end ${sharedCls}">${sharedVal}</td>
           <td>${d.shared_at || "—"}</td>
@@ -196,6 +226,7 @@
         msg.textContent = "No records yet. Open Dashboard once to start recording.";
         tbl.style.display = "none";
       }
+
     } catch (e) {
       msg.textContent = "Error: " + e;
       document.getElementById("dpTable").style.display = "none";

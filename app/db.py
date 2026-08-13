@@ -1,4 +1,3 @@
-# app/db.py
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -16,9 +15,11 @@ def db_url() -> str:
 def init_db() -> None:
     """
     Create/upgrade table.
+    Safe to run on every startup.
     """
     with psycopg2.connect(db_url(), connect_timeout=5) as conn:
         with conn.cursor() as cur:
+            # Create base table (if it doesn't exist)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS daily_pnl (
                   day date PRIMARY KEY,
@@ -26,20 +27,39 @@ def init_db() -> None:
                   last_net_liq double precision NOT NULL,
                   pnl double precision NOT NULL,
                   updated_at timestamptz NOT NULL DEFAULT now(),
+
+                  -- snapshot fields (when user clicks "share")
                   shared_realized_pnl double precision,
-                  shared_at timestamptz
+                  shared_at timestamptz,
+                  shared_symbols text,
+                  shared_money_used double precision NOT NULL DEFAULT 0,
+
+                  -- charges
+                  day_charges double precision NOT NULL DEFAULT 0
                 );
             """)
 
-            # ✅ NEW: charges per day (safe upgrade)
+            # Safe upgrades (older DBs)
             cur.execute(
                 "ALTER TABLE daily_pnl "
                 "ADD COLUMN IF NOT EXISTS day_charges double precision NOT NULL DEFAULT 0;"
             )
-
-            # keep these safe upgrades too (if you already had them, no harm)
-            cur.execute("ALTER TABLE daily_pnl ADD COLUMN IF NOT EXISTS shared_realized_pnl double precision;")
-            cur.execute("ALTER TABLE daily_pnl ADD COLUMN IF NOT EXISTS shared_at timestamptz;")
+            cur.execute(
+                "ALTER TABLE daily_pnl "
+                "ADD COLUMN IF NOT EXISTS shared_realized_pnl double precision;"
+            )
+            cur.execute(
+                "ALTER TABLE daily_pnl "
+                "ADD COLUMN IF NOT EXISTS shared_at timestamptz;"
+            )
+            cur.execute(
+                "ALTER TABLE daily_pnl "
+                "ADD COLUMN IF NOT EXISTS shared_symbols text;"
+            )
+            cur.execute(
+                "ALTER TABLE daily_pnl "
+                "ADD COLUMN IF NOT EXISTS shared_money_used double precision NOT NULL DEFAULT 0;"
+            )
 
 
 def upsert_daily_pnl(day_iso: str, net_liq: float) -> None:
@@ -56,16 +76,25 @@ def upsert_daily_pnl(day_iso: str, net_liq: float) -> None:
             cur.execute(sql, (day_iso, float(net_liq), float(net_liq)))
 
 
-def set_shared_realized(day_iso: str, realized: float) -> None:
+def set_shared_snapshot(day_iso: str, realized: float, symbols: str, money_used: float) -> None:
+    """
+    Saves a snapshot when user clicks "Share Realized":
+      - shared_realized_pnl
+      - shared_symbols
+      - shared_money_used
+      - shared_at timestamp
+    """
     sql = """
     UPDATE daily_pnl
     SET shared_realized_pnl = %s,
+        shared_symbols = %s,
+        shared_money_used = %s,
         shared_at = now()
     WHERE day = %s::date;
     """
     with psycopg2.connect(db_url(), connect_timeout=5) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (float(realized), day_iso))
+            cur.execute(sql, (float(realized), symbols, float(money_used), day_iso))
 
 
 def get_daily_pnl(limit: int = 3650):
@@ -76,6 +105,8 @@ def get_daily_pnl(limit: int = 3650):
       last_net_liq,
       pnl,
       day_charges,
+      shared_symbols,
+      shared_money_used,
       updated_at,
       shared_realized_pnl,
       shared_at
