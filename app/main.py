@@ -1,5 +1,6 @@
 import os
 import re
+from collections import defaultdict
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -243,11 +244,6 @@ def api_dashboard():
 
 @app.get("/api/daily-pnl")
 def api_daily_pnl():
-    """
-    Returns daily rows + totals:
-      - total_shared_sum = sum(shared_realized_pnl)
-      - total_charges_sum = sum(day_charges)
-    """
     try:
         rows = db.get_daily_pnl(3650)
 
@@ -286,10 +282,10 @@ def api_daily_pnl():
 @app.post("/api/daily-pnl/share")
 def api_daily_pnl_share():
     """
-    Saves today's snapshot:
+    Snapshot saves:
       - shared_realized_pnl
-      - shared_symbols      (UNDERLYING ONLY, e.g. ASTRAL)
-      - shared_money_used   (today turnover: sum(abs(qty*price)) for today)
+      - shared_symbols      (UNDERLYING ONLY like ASTRAL)
+      - shared_money_used   (ONLY opening/increasing exposure; exit not counted)
     """
     acct = store.account
 
@@ -309,18 +305,18 @@ def api_daily_pnl_share():
     realized = float(acct.realized_pnl)
     day_iso = datetime.now(IST).date().isoformat()
 
-    # --- compute today's traded underlyings + money used (turnover) ---
+    # --- filter today's trades (IST day) ---
     today_date = datetime.now(IST).date()
-
     trades_today = []
     for t in store.trades:
-        # trades use UTC naive timestamps; treat as UTC and convert to IST date
         t_ist_date = t.traded_at.replace(tzinfo=timezone.utc).astimezone(IST).date()
         if t_ist_date == today_date:
             trades_today.append(t)
 
+    trades_today.sort(key=lambda t: t.traded_at)
+
+    # --- underlying name extraction (ASTRAL) ---
     def _underlying_from_trade(t) -> str:
-        # Best: use instrument "name" (for NFO options it is underlying like ASTRAL)
         ins = store.get_instrument(int(t.instrument_id))
         if ins:
             nm = (ins.get("name") or "").strip()
@@ -332,7 +328,6 @@ def api_daily_pnl_share():
                 m = re.match(r"^([A-Z]+)", ts)
                 return (m.group(1) if m else ts)
 
-        # Fallback: parse from stored "symbol" like "NFO:ASTRAL26AUG1600CE"
         raw = (t.symbol or "").split(":")[-1].strip().upper()
         m = re.match(r"^([A-Z]+)", raw)
         return (m.group(1) if m else raw)
@@ -345,8 +340,36 @@ def api_daily_pnl_share():
             uniq_underlyings.append(u)
             seen.add(u)
 
-    shared_symbols = ", ".join(uniq_underlyings)  # e.g. "ASTRAL" or "ASTRAL, TCS"
-    shared_money_used = sum(abs(float(t.qty) * float(t.price)) for t in trades_today)
+    shared_symbols = ", ".join(uniq_underlyings)  # e.g. "ASTRAL"
+
+    # --- ✅ FIX: money used counts ONLY opening / increase (exit not counted) ---
+    def _sgn(x: int) -> int:
+        return 0 if x == 0 else (1 if x > 0 else -1)
+
+    net_by_iid = defaultdict(int)
+    shared_money_used = 0.0
+
+    for t in trades_today:
+        qty = int(t.qty)
+        px = float(t.price)
+        side_u = (t.side or "").upper().strip()
+        signed = qty if side_u == "BUY" else -qty
+
+        iid = int(t.instrument_id)
+        net = int(net_by_iid[iid])
+        new_net = net + signed
+
+        # opening_qty = only the part that OPENS / INCREASES exposure
+        if net == 0:
+            opening_qty = abs(signed)
+        elif _sgn(net) == _sgn(new_net):
+            opening_qty = max(0, abs(new_net) - abs(net))
+        else:
+            # crossed zero: closing old + opening opposite
+            opening_qty = abs(new_net)
+
+        shared_money_used += float(opening_qty) * px
+        net_by_iid[iid] = new_net
 
     try:
         db.upsert_daily_pnl(day_iso, net_liq)  # ensure row exists
@@ -366,9 +389,6 @@ def api_daily_pnl_share():
 
 @app.post("/api/daily-pnl/reset")
 def api_daily_pnl_reset(admin_token: str | None = Form(None)):
-    """
-    Truncates daily_pnl table. Protected by ADMIN_TOKEN env var.
-    """
     need = os.environ.get("ADMIN_TOKEN", "").strip()
     if not need:
         raise HTTPException(403, "ADMIN_TOKEN not configured on server")
