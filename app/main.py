@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -100,7 +101,6 @@ def api_quote(instrument_id: int):
     }
 
 
-# Make /api/order tolerant (avoids 422 -> gives clear 400)
 @app.post("/api/order")
 def api_order(
     instrument_id: int | None = Form(None),
@@ -131,7 +131,6 @@ def api_order(
     return {"ok": True, "message": msg, "order_id": oid, "fill_price": float(ltp)}
 
 
-# Exit full position server-side
 @app.post("/api/exit")
 def api_exit(instrument_id: int | None = Form(None)):
     if instrument_id is None:
@@ -289,8 +288,8 @@ def api_daily_pnl_share():
     """
     Saves today's snapshot:
       - shared_realized_pnl
-      - shared_symbols  (symbols traded today)
-      - shared_money_used (today turnover: sum(abs(qty*price)) for today)
+      - shared_symbols      (UNDERLYING ONLY, e.g. ASTRAL)
+      - shared_money_used   (today turnover: sum(abs(qty*price)) for today)
     """
     acct = store.account
 
@@ -310,23 +309,43 @@ def api_daily_pnl_share():
     realized = float(acct.realized_pnl)
     day_iso = datetime.now(IST).date().isoformat()
 
-    # --- NEW: compute today's traded symbols + money used (turnover) ---
+    # --- compute today's traded underlyings + money used (turnover) ---
     today_date = datetime.now(IST).date()
+
     trades_today = []
     for t in store.trades:
-        # store uses UTC naive timestamps; treat as UTC and convert to IST date
+        # trades use UTC naive timestamps; treat as UTC and convert to IST date
         t_ist_date = t.traded_at.replace(tzinfo=timezone.utc).astimezone(IST).date()
         if t_ist_date == today_date:
             trades_today.append(t)
 
-    seen = set()
-    uniq_symbols = []
-    for t in trades_today:
-        if t.symbol not in seen:
-            uniq_symbols.append(t.symbol)
-            seen.add(t.symbol)
+    def _underlying_from_trade(t) -> str:
+        # Best: use instrument "name" (for NFO options it is underlying like ASTRAL)
+        ins = store.get_instrument(int(t.instrument_id))
+        if ins:
+            nm = (ins.get("name") or "").strip()
+            if nm:
+                return nm.upper()
 
-    shared_symbols = ", ".join(uniq_symbols)
+            ts = (ins.get("tradingsymbol") or "").strip().upper()
+            if ts:
+                m = re.match(r"^([A-Z]+)", ts)
+                return (m.group(1) if m else ts)
+
+        # Fallback: parse from stored "symbol" like "NFO:ASTRAL26AUG1600CE"
+        raw = (t.symbol or "").split(":")[-1].strip().upper()
+        m = re.match(r"^([A-Z]+)", raw)
+        return (m.group(1) if m else raw)
+
+    seen = set()
+    uniq_underlyings = []
+    for t in trades_today:
+        u = _underlying_from_trade(t)
+        if u and u not in seen:
+            uniq_underlyings.append(u)
+            seen.add(u)
+
+    shared_symbols = ", ".join(uniq_underlyings)  # e.g. "ASTRAL" or "ASTRAL, TCS"
     shared_money_used = sum(abs(float(t.qty) * float(t.price)) for t in trades_today)
 
     try:
