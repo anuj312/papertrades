@@ -60,7 +60,7 @@
                 <th class="text-end">Avg</th>
                 <th class="text-end">LTP</th>
                 <th class="text-end">RET%</th>
-                <th class="text-end">P&L</th>
+                <th class="text-end">P&amp;L</th>
                 <th class="text-end">Action</th>
               </tr>
             </thead>
@@ -165,13 +165,18 @@
               </select>
             </div>
 
+            <!-- ✅ Lots stepper -->
             <div class="col-md-4">
               <label class="form-label">Lots</label>
-              <input class="form-control" type="number" min="1" value="1" name="lots" id="mLots"/>
+              <div class="input-group">
+                <button class="btn btn-outline-light" type="button" id="mLotsDec">−</button>
+                <input class="form-control" type="number" min="1" step="1" value="1" name="lots" id="mLots" inputmode="numeric"/>
+                <button class="btn btn-outline-light" type="button" id="mLotsInc">+</button>
+              </div>
             </div>
 
             <div class="col-md-4">
-              <button class="btn btn-primary w-100 btn-lg" type="submit">Place Paper Order</button>
+              <button class="btn btn-primary w-100 btn-lg" id="mSubmit" type="submit">Place Paper Order</button>
             </div>
           </div>
         </form>
@@ -196,6 +201,9 @@
     return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
   }
 
+  // ---------------------------
+  // Share Realized
+  // ---------------------------
   document.addEventListener("click", async (e) => {
     if (!e.target || e.target.id !== "btnShareRealized") return;
 
@@ -214,7 +222,6 @@
       const text = `Realized PnL (${data.day}): ₹${fmtMoney(data.realized)}`;
       box.innerHTML = `<div class="alert alert-success mb-0">Saved to Daily PnL. ${text}</div>`;
 
-      // Optional: open share sheet (mobile) or copy to clipboard
       if (navigator.share) {
         try { await navigator.share({ title: "Daily PnL", text }); } catch (_) {}
       } else if (navigator.clipboard) {
@@ -222,6 +229,126 @@
       }
     } catch (err) {
       box.innerHTML = `<div class="alert alert-danger">Error: ${err}</div>`;
+    }
+  });
+
+  // ---------------------------
+  // Order modal: lots +/- + auto-close on success
+  // ---------------------------
+  function clampLots(v){
+    let n = parseInt(v || "1", 10);
+    if (isNaN(n) || n < 1) n = 1;
+    return n;
+  }
+
+  function parseMoneyTextToNumber(s){
+    // "₹ 23,612.5" -> 23612.5
+    const t = String(s || "").replace(/[^\d.]/g, "");
+    const n = parseFloat(t);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function updateCapOrder(){
+    const lotsEl = document.getElementById("mLots");
+    const perLotEl = document.getElementById("mCapPerLot");
+    const capOrderEl = document.getElementById("mCapOrder");
+    if (!lotsEl || !perLotEl || !capOrderEl) return;
+
+    const lots = clampLots(lotsEl.value);
+    lotsEl.value = String(lots);
+
+    const perLot = perLotEl.dataset.value
+      ? Number(perLotEl.dataset.value)
+      : parseMoneyTextToNumber(perLotEl.textContent);
+
+    const orderCap = perLot * lots;
+    capOrderEl.textContent = "₹ " + fmtMoney(orderCap);
+  }
+
+  (function initLotsStepper(){
+    const lotsEl = document.getElementById("mLots");
+    const decBtn = document.getElementById("mLotsDec");
+    const incBtn = document.getElementById("mLotsInc");
+
+    if (decBtn && lotsEl){
+      decBtn.addEventListener("click", () => {
+        lotsEl.value = String(Math.max(1, clampLots(lotsEl.value) - 1));
+        updateCapOrder();
+      });
+    }
+    if (incBtn && lotsEl){
+      incBtn.addEventListener("click", () => {
+        lotsEl.value = String(clampLots(lotsEl.value) + 1);
+        updateCapOrder();
+      });
+    }
+    if (lotsEl){
+      lotsEl.addEventListener("input", () => {
+        lotsEl.value = String(clampLots(lotsEl.value));
+        updateCapOrder();
+      });
+    }
+
+    // Whenever modal opens, re-calc notional for current lots
+    const modalEl = document.getElementById("orderModal");
+    if (modalEl){
+      modalEl.addEventListener("shown.bs.modal", () => {
+        // If some other script sets mCapPerLot, ask it to also set:
+        // document.getElementById("mCapPerLot").dataset.value = <number>;
+        updateCapOrder();
+        const msg = document.getElementById("mMsg");
+        if (msg) msg.innerHTML = "";
+      });
+    }
+  })();
+
+  // Submit => place order => close modal on success
+  document.getElementById("mOrderForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const msg = document.getElementById("mMsg");
+    const btn = document.getElementById("mSubmit");
+    if (msg) msg.innerHTML = "";
+
+    const instrumentId = Number(document.getElementById("mInstrumentId").value || 0);
+    const side = (document.getElementById("mSide").value || "").trim();
+    const lots = clampLots(document.getElementById("mLots").value);
+
+    if (!instrumentId){
+      if (msg) msg.innerHTML = `<div class="alert alert-danger mb-0">Instrument missing</div>`;
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append("instrument_id", String(instrumentId));
+    fd.append("side", side);
+    fd.append("lots", String(lots));
+
+    try {
+      if (btn) { btn.disabled = true; btn.textContent = "Placing…"; }
+
+      const r = await fetch("/api/order", { method: "POST", body: fd });
+      const data = await r.json().catch(() => ({}));
+
+      if (!r.ok || !data.ok){
+        if (msg) msg.innerHTML = `<div class="alert alert-danger mb-0">${data.detail || data.message || "Order failed"}</div>`;
+        return;
+      }
+
+      if (msg) msg.innerHTML = `<div class="alert alert-success mb-0">FILLED @ ₹${fmtMoney(data.fill_price)}</div>`;
+
+      // refresh dashboard tables if you have a loader function elsewhere
+      if (typeof loadDashboard === "function") loadDashboard();
+
+      // ✅ close modal
+      const modalEl = document.getElementById("orderModal");
+      if (modalEl && window.bootstrap){
+        bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+      }
+    } catch (err) {
+      if (msg) msg.innerHTML = `<div class="alert alert-danger mb-0">Error: ${err}</div>`;
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "Place Paper Order"; }
     }
   });
 </script>
