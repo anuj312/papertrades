@@ -1,5 +1,8 @@
+# app/main.py
 import os
 import re
+import time
+import threading
 from collections import defaultdict
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -21,6 +24,12 @@ BASE_DIR = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
+# Throttle Neon DB writes from dashboard
+DAILY_PNL_WRITE_EVERY_SEC = 300  # 5 minutes
+_last_daily_pnl_write_ts: float | None = None
+_last_daily_pnl_write_day: str | None = None
+_daily_pnl_write_lock = threading.Lock()
+
 
 @app.on_event("startup")
 def startup():
@@ -36,6 +45,26 @@ def startup():
         kitehub.start_ws()
     except Exception:
         pass
+
+
+def _maybe_upsert_daily_pnl(net_liq: float) -> None:
+    """
+    Writes to daily_pnl at most once every 5 minutes (per worker),
+    but writes immediately if the day changes (IST).
+    """
+    global _last_daily_pnl_write_ts, _last_daily_pnl_write_day
+
+    day_iso = datetime.now(IST).date().isoformat()
+    now_ts = time.time()
+
+    with _daily_pnl_write_lock:
+        day_changed = (_last_daily_pnl_write_day != day_iso)
+        due = (_last_daily_pnl_write_ts is None) or ((now_ts - _last_daily_pnl_write_ts) >= DAILY_PNL_WRITE_EVERY_SEC)
+
+        if day_changed or due:
+            db.upsert_daily_pnl(day_iso, float(net_liq))
+            _last_daily_pnl_write_ts = now_ts
+            _last_daily_pnl_write_day = day_iso
 
 
 # ---------------- Pages ----------------
@@ -215,10 +244,9 @@ def api_dashboard():
 
     net_liq = float(acct.cash) + float(unrealized)
 
-    # persist today's netliq so daily pnl updates when dashboard refreshes
+    # Persist today's netliq (throttled to reduce Neon latency)
     try:
-        day_iso = datetime.now(IST).date().isoformat()
-        db.upsert_daily_pnl(day_iso, net_liq)
+        _maybe_upsert_daily_pnl(net_liq)
     except Exception as e:
         print("Daily PnL DB write failed:", e)
 
@@ -244,6 +272,11 @@ def api_dashboard():
 
 @app.get("/api/daily-pnl")
 def api_daily_pnl():
+    """
+    Returns daily rows + totals:
+      - total_shared_sum = sum(shared_realized_pnl)
+      - total_charges_sum = sum(day_charges)
+    """
     try:
         rows = db.get_daily_pnl(3650)
 
@@ -342,7 +375,7 @@ def api_daily_pnl_share():
 
     shared_symbols = ", ".join(uniq_underlyings)  # e.g. "ASTRAL"
 
-    # --- ✅ FIX: money used counts ONLY opening / increase (exit not counted) ---
+    # --- money used: ONLY opening / increase (exit not counted) ---
     def _sgn(x: int) -> int:
         return 0 if x == 0 else (1 if x > 0 else -1)
 
@@ -389,6 +422,9 @@ def api_daily_pnl_share():
 
 @app.post("/api/daily-pnl/reset")
 def api_daily_pnl_reset(admin_token: str | None = Form(None)):
+    """
+    Truncates daily_pnl table. Protected by ADMIN_TOKEN env var.
+    """
     need = os.environ.get("ADMIN_TOKEN", "").strip()
     if not need:
         raise HTTPException(403, "ADMIN_TOKEN not configured on server")
