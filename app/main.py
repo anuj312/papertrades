@@ -67,6 +67,29 @@ def _maybe_upsert_daily_pnl(net_liq: float) -> None:
             _last_daily_pnl_write_day = day_iso
 
 
+def _short_display_symbol(exchange: str, tradingsymbol: str, ins: dict | None) -> str:
+    """
+    For NFO options/futures show only underlying:
+      APOLLOHOSP26AUG8800CE -> APOLLOHOSP
+    Uses instrument 'name' when available (best).
+    """
+    exchange = (exchange or "").upper().strip()
+    ts_u = (tradingsymbol or "").upper().strip()
+
+    if exchange == "NFO":
+        if ins:
+            nm = (ins.get("name") or "").strip()
+            it = (ins.get("instrument_type") or "").upper().strip()
+            if nm and it in ("CE", "PE", "FUT", "FUTIDX", "FUTSTK"):
+                return nm.upper()
+
+        m = re.match(r"^([A-Z]+)", ts_u)
+        return (m.group(1) if m else ts_u)
+
+    # NSE (or anything else): show normal symbol
+    return ts_u
+
+
 # ---------------- Pages ----------------
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -232,9 +255,12 @@ def api_dashboard():
         pnl = (float(ltp) - float(p.avg_price)) * int(p.net_qty)
         unrealized += float(pnl)
 
+        display_symbol = _short_display_symbol(p.exchange, p.tradingsymbol, ins)
+
         pos_rows.append({
             "instrument_id": int(p.instrument_id),
-            "symbol": f"{p.exchange}:{p.tradingsymbol}",
+            "symbol": display_symbol,                      # ✅ APOLLOHOSP
+            "full_symbol": f"{p.exchange}:{p.tradingsymbol}",  # optional
             "qty": int(p.net_qty),
             "avg": float(p.avg_price),
             "ltp": float(ltp),
