@@ -19,7 +19,6 @@ def init_db() -> None:
     """
     with psycopg2.connect(db_url(), connect_timeout=5) as conn:
         with conn.cursor() as cur:
-            # Create base table (if it doesn't exist)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS daily_pnl (
                   day date PRIMARY KEY,
@@ -61,6 +60,8 @@ def init_db() -> None:
                 "ADD COLUMN IF NOT EXISTS shared_money_used double precision NOT NULL DEFAULT 0;"
             )
 
+        conn.commit()
+
 
 def upsert_daily_pnl(day_iso: str, net_liq: float) -> None:
     sql = """
@@ -74,6 +75,7 @@ def upsert_daily_pnl(day_iso: str, net_liq: float) -> None:
     with psycopg2.connect(db_url(), connect_timeout=5) as conn:
         with conn.cursor() as cur:
             cur.execute(sql, (day_iso, float(net_liq), float(net_liq)))
+        conn.commit()
 
 
 def set_shared_snapshot(day_iso: str, realized: float, symbols: str, money_used: float) -> None:
@@ -95,6 +97,7 @@ def set_shared_snapshot(day_iso: str, realized: float, symbols: str, money_used:
     with psycopg2.connect(db_url(), connect_timeout=5) as conn:
         with conn.cursor() as cur:
             cur.execute(sql, (float(realized), symbols, float(money_used), day_iso))
+        conn.commit()
 
 
 def get_daily_pnl(limit: int = 3650):
@@ -120,7 +123,19 @@ def get_daily_pnl(limit: int = 3650):
             return cur.fetchall()
 
 
+def delete_daily_pnl_day(day_iso: str) -> None:
+    """
+    Deletes exactly one day row from Neon Postgres.
+    """
+    sql = "DELETE FROM daily_pnl WHERE day = %s::date;"
+    with psycopg2.connect(db_url(), connect_timeout=5) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (day_iso,))
+        conn.commit()
+
+
 def reset_daily_pnl() -> None:
     with psycopg2.connect(db_url(), connect_timeout=5) as conn:
         with conn.cursor() as cur:
             cur.execute("TRUNCATE TABLE daily_pnl;")
+        conn.commit()

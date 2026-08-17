@@ -1,4 +1,3 @@
-# app/main.py
 import os
 import re
 import time
@@ -86,7 +85,6 @@ def _short_display_symbol(exchange: str, tradingsymbol: str, ins: dict | None) -
         m = re.match(r"^([A-Z]+)", ts_u)
         return (m.group(1) if m else ts_u)
 
-    # NSE (or anything else): show normal symbol
     return ts_u
 
 
@@ -259,8 +257,8 @@ def api_dashboard():
 
         pos_rows.append({
             "instrument_id": int(p.instrument_id),
-            "symbol": display_symbol,                      # ✅ APOLLOHOSP
-            "full_symbol": f"{p.exchange}:{p.tradingsymbol}",  # optional
+            "symbol": display_symbol,
+            "full_symbol": f"{p.exchange}:{p.tradingsymbol}",
             "qty": int(p.net_qty),
             "avg": float(p.avg_price),
             "ltp": float(ltp),
@@ -399,7 +397,7 @@ def api_daily_pnl_share():
             uniq_underlyings.append(u)
             seen.add(u)
 
-    shared_symbols = ", ".join(uniq_underlyings)  # e.g. "ASTRAL"
+    shared_symbols = ", ".join(uniq_underlyings)
 
     # --- money used: ONLY opening / increase (exit not counted) ---
     def _sgn(x: int) -> int:
@@ -418,13 +416,11 @@ def api_daily_pnl_share():
         net = int(net_by_iid[iid])
         new_net = net + signed
 
-        # opening_qty = only the part that OPENS / INCREASES exposure
         if net == 0:
             opening_qty = abs(signed)
         elif _sgn(net) == _sgn(new_net):
             opening_qty = max(0, abs(new_net) - abs(net))
         else:
-            # crossed zero: closing old + opening opposite
             opening_qty = abs(new_net)
 
         shared_money_used += float(opening_qty) * px
@@ -444,6 +440,27 @@ def api_daily_pnl_share():
         "shared_symbols": shared_symbols,
         "shared_money_used": float(shared_money_used),
     }
+
+
+@app.post("/api/daily-pnl/delete")
+def api_daily_pnl_delete(
+    day: str = Form(...),
+    admin_token: str = Form(...),
+):
+    """
+    Deletes ONE day row from daily_pnl table. Protected by ADMIN_TOKEN env var.
+    """
+    need = os.environ.get("ADMIN_TOKEN", "").strip()
+    if not need:
+        raise HTTPException(403, "ADMIN_TOKEN not configured on server")
+    if admin_token != need:
+        raise HTTPException(401, "Invalid admin token")
+
+    try:
+        db.delete_daily_pnl_day(day)
+        return {"ok": True, "day": day, "message": "Deleted"}
+    except Exception as e:
+        raise HTTPException(503, f"DB error: {e}")
 
 
 @app.post("/api/daily-pnl/reset")

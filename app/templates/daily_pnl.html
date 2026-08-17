@@ -1,3 +1,4 @@
+{# app/templates/daily_pnl.html #}
 {% extends "base.html" %}
 
 {% block content %}
@@ -63,7 +64,6 @@
         </div>
       </div>
 
-      <!-- Optional extra KPIs (if you want) -->
       <div class="col-md-3">
         <div class="mini-kpi">
           <div class="label">Today Money Used</div>
@@ -98,7 +98,7 @@
             <th class="text-end">Shared Realized</th>
             <th>Shared At</th>
             <th class="text-end">Charges</th>
-            <th>Updated</th>
+            <th class="text-end">Delete</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -111,7 +111,12 @@
 
 {% block scripts %}
 <script>
+  // NOTE: For delete to work, backend must implement:
+  //   POST /api/daily-pnl/delete  (Form: day, admin_token)
+
   const AUTO_MS = 10000;
+  const dpAuto = document.getElementById("dpAuto");
+  if (dpAuto) dpAuto.textContent = String(Math.round(AUTO_MS / 1000)) + "s";
 
   function fmt(x){
     x = Number(x || 0);
@@ -163,7 +168,8 @@
       const r = await fetch("/api/daily-pnl", { cache: "no-store" });
       const data = await r.json().catch(() => ({}));
 
-      document.getElementById("dpLast").textContent = new Date().toLocaleTimeString();
+      const dpLast = document.getElementById("dpLast");
+      if (dpLast) dpLast.textContent = new Date().toLocaleTimeString();
 
       if (!r.ok || !data.ok) {
         msg.textContent = "Failed to load.";
@@ -175,8 +181,6 @@
       setKpi("kToday", data.today_pnl || 0, pnlClass);
       setKpi("kSum", data.total_pnl_sum || 0, pnlClass);
       setKpi("kOverall", data.overall_change || 0, pnlClass);
-
-      // totals (new)
       setKpi("kSharedSum", data.total_shared_sum || 0, pnlClass);
       setKpi("kChargesSum", data.total_charges_sum || 0, chargeClass);
 
@@ -184,14 +188,11 @@
       const today = data.today;
       const todayRow = rows.find(x => x.day === today);
 
-      // Today Shared Realized
       setKpi("kShared", todayRow ? todayRow.shared_realized_pnl : null, pnlClass, true);
-
-      // Optional: show today stock name + money used in KPIs
       setText("kSymbols", todayRow ? todayRow.shared_symbols : "");
       setKpi("kMoneyUsed", todayRow ? todayRow.shared_money_used : null, pnlClass, true);
 
-      // table
+      // Table
       tb.innerHTML = "";
 
       for (const d of rows) {
@@ -208,13 +209,21 @@
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${d.day}</td>
-          <td style="max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${symbols}">${symbols}</td>
+          <td style="max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${symbols}">
+            ${symbols}
+          </td>
           <td class="text-end">${fmt(moneyUsed)}</td>
           <td class="text-end ${pnlClass(d.pnl)}">${fmt(d.pnl)}</td>
           <td class="text-end ${sharedCls}">${sharedVal}</td>
           <td>${d.shared_at || "—"}</td>
           <td class="text-end ${chargeClass(charges)}">${fmt(charges)}</td>
-          <td>${d.updated_at || "—"}</td>
+          <td class="text-end">
+            <button class="btn btn-sm btn-outline-danger dp-del"
+                    data-day="${d.day}"
+                    title="Delete this day">
+              ✕
+            </button>
+          </td>
         `;
         tb.appendChild(tr);
       }
@@ -228,8 +237,10 @@
       }
 
     } catch (e) {
-      msg.textContent = "Error: " + e;
-      document.getElementById("dpTable").style.display = "none";
+      const msg = document.getElementById("dpMsg");
+      if (msg) msg.textContent = "Error: " + e;
+      const tbl = document.getElementById("dpTable");
+      if (tbl) tbl.style.display = "none";
     }
   }
 
@@ -253,9 +264,58 @@
     await loadDailyPnl();
   }
 
+  async function deleteDay(day) {
+    if (!day) return;
+
+    if (!confirm(`Delete Daily PnL row for ${day}?`)) return;
+    const token = prompt("Enter ADMIN_TOKEN:");
+    if (!token) return;
+
+    const fd = new FormData();
+    fd.append("day", day);
+    fd.append("admin_token", token);
+
+    const r = await fetch("/api/daily-pnl/delete", { method: "POST", body: fd });
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok || !data.ok) {
+      alert("Delete failed: " + (data.detail || "error"));
+      return;
+    }
+
+    await loadDailyPnl();
+  }
+
+  // Buttons
   document.getElementById("btnDpRefresh").addEventListener("click", loadDailyPnl);
   document.getElementById("btnDpResetDb").addEventListener("click", resetDb);
 
+  // Delete handler (event delegation)
+  (function bindDeleteHandlerOnce(){
+    const tbl = document.getElementById("dpTable");
+    if (!tbl) return;
+
+    if (tbl.dataset.boundDelete === "1") return;
+    tbl.dataset.boundDelete = "1";
+
+    const tb = tbl.querySelector("tbody");
+    if (!tb) return;
+
+    tb.addEventListener("click", async (e) => {
+      const btn = e.target.closest(".dp-del");
+      if (!btn) return;
+
+      const day = btn.getAttribute("data-day");
+      btn.disabled = true;
+      try {
+        await deleteDay(day);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  })();
+
+  // Boot
   loadDailyPnl();
   setInterval(loadDailyPnl, AUTO_MS);
 </script>
