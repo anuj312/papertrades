@@ -12,7 +12,7 @@ async function jpostForm(url, obj) {
   for (const [k, v] of Object.entries(obj)) fd.append(k, String(v));
   const r = await fetch(url, { method: "POST", body: fd });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
+  if (!r.ok) throw new Error(data.detail || data.message || JSON.stringify(data));
   return data;
 }
 
@@ -72,13 +72,9 @@ function fmtStrike(x) {
 
 // Fix for 26AUG14 parsing: split by stripping "<strike><CE/PE>" suffix
 function parseOptCodeFromTS(tradingsymbol, strike, optType, name) {
-  const ts = String(tradingsymbol || "")
-    .toUpperCase()
-    .replace(/\s+/g, "");
+  const ts = String(tradingsymbol || "").toUpperCase().replace(/\s+/g, "");
   const type = String(optType || "").toUpperCase();
-  const under = String(name || "")
-    .toUpperCase()
-    .replace(/\s+/g, "");
+  const under = String(name || "").toUpperCase().replace(/\s+/g, "");
 
   const strikeNum = Number(strike);
   const strikeStrs = [];
@@ -99,7 +95,6 @@ function parseOptCodeFromTS(tradingsymbol, strike, optType, name) {
     }
   }
 
-  // fallback regex (rare)
   const m = ts.match(/^([A-Z]+)(\d{1,2}[A-Z]{3}\d{0,2})(\d+(?:\.\d+)?)(CE|PE)$/);
   if (!m) return null;
   return { under: m[1], exp: m[2], strike: m[3], type: m[4] };
@@ -129,17 +124,22 @@ async function refreshDashboard() {
 
   const data = await jget("/api/dashboard");
 
-  document.getElementById("kCash").textContent = "₹ " + fmtNum(data.cash);
-  document.getElementById("kUnr").textContent = "₹ " + fmtNum(data.unrealized);
-  document.getElementById("kRel").textContent = "₹ " + fmtNum(data.realized);
-  document.getElementById("kNet").textContent = "₹ " + fmtNum(data.net_liq);
+  const kCash = document.getElementById("kCash");
+  const kUnr = document.getElementById("kUnr");
+  const kRel = document.getElementById("kRel");
+  const kNet = document.getElementById("kNet");
 
-  setPnLClass(document.getElementById("kUnr"), data.unrealized);
-  setPnLClass(document.getElementById("kRel"), data.realized);
+  if (kCash) kCash.textContent = "₹ " + fmtNum(data.cash);
+  if (kUnr) kUnr.textContent = "₹ " + fmtNum(data.unrealized);
+  if (kRel) kRel.textContent = "₹ " + fmtNum(data.realized);
+  if (kNet) kNet.textContent = "₹ " + fmtNum(data.net_liq);
+
+  setPnLClass(kUnr, data.unrealized);
+  setPnLClass(kRel, data.realized);
 
   // Positions
   const tb = document.querySelector("#posTable tbody");
-  tb.innerHTML = "";
+  if (tb) tb.innerHTML = "";
 
   for (const p of data.positions || []) {
     const rawSym = String(p.symbol || "");
@@ -171,12 +171,12 @@ async function refreshDashboard() {
     setPnLClass(tr.querySelector("td:nth-child(5)"), retPct);
     setPnLClass(tr.querySelector("td:nth-child(6)"), pnl);
 
-    tb.appendChild(tr);
+    if (tb) tb.appendChild(tr);
   }
 
   // Orders
   const ob = document.querySelector("#ordTable tbody");
-  ob.innerHTML = "";
+  if (ob) ob.innerHTML = "";
   for (const o of data.orders || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -188,12 +188,12 @@ async function refreshDashboard() {
       <td class="text-end">${fmtNum(o.price)}</td>
       <td>${o.status}</td>
     `;
-    ob.appendChild(tr);
+    if (ob) ob.appendChild(tr);
   }
 
   // Trades
   const th = document.querySelector("#trdTable tbody");
-  th.innerHTML = "";
+  if (th) th.innerHTML = "";
   for (const t of data.trades || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -204,7 +204,7 @@ async function refreshDashboard() {
       <td class="text-end">${fmtNum(t.price)}</td>
       <td class="text-secondary small">${t.time}</td>
     `;
-    th.appendChild(tr);
+    if (th) th.appendChild(tr);
   }
 
   return data;
@@ -213,6 +213,10 @@ async function refreshDashboard() {
 function initDashboardExitHandler() {
   const table = document.getElementById("posTable");
   if (!table) return;
+
+  // guard
+  if (table.dataset.boundExit === "1") return;
+  table.dataset.boundExit = "1";
 
   table.addEventListener("click", async (e) => {
     const btn = e.target.closest(".exit-btn");
@@ -261,6 +265,7 @@ function initDashboardQuickTrade() {
   const mInstrumentId = document.getElementById("mInstrumentId");
   const mSide = document.getElementById("mSide");
   const mLots = document.getElementById("mLots");
+  const mSubmit = document.getElementById("mSubmit");
 
   let selected = null;
   let quoteTimer = null;
@@ -312,6 +317,55 @@ function initDashboardQuickTrade() {
   function stopQuotePoll() {
     if (quoteTimer) clearInterval(quoteTimer);
     quoteTimer = null;
+  }
+
+  // Guard: only bind once (prevents accidental double-order due to double binding)
+  if (mForm && mForm.dataset.boundSubmit !== "1") {
+    mForm.dataset.boundSubmit = "1";
+
+    mForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (mMsg) mMsg.innerHTML = "";
+
+      if (!mInstrumentId?.value) {
+        if (mMsg) mMsg.innerHTML = `<div class="alert alert-warning py-2">No instrument selected.</div>`;
+        return;
+      }
+
+      const oldTxt = mSubmit ? mSubmit.textContent : "";
+
+      try {
+        if (mSubmit) {
+          mSubmit.disabled = true;
+          mSubmit.textContent = "Placing…";
+        }
+
+        const res = await jpostForm("/api/order", {
+          instrument_id: mInstrumentId.value,
+          side: mSide?.value || "BUY",
+          lots: mLots?.value || "1",
+        });
+
+        // optional: brief success message (modal closes immediately after refresh)
+        if (mMsg) {
+          mMsg.innerHTML = `<div class="alert alert-success py-2">
+            Order #${res.order_id}: FILLED @ ${Number(res.fill_price).toFixed(2)}
+          </div>`;
+        }
+
+        await refreshDashboard();
+
+        // ✅ Auto close modal after successful order
+        modal.hide();
+      } catch (err) {
+        if (mMsg) mMsg.innerHTML = `<div class="alert alert-danger py-2">${err}</div>`;
+      } finally {
+        if (mSubmit) {
+          mSubmit.disabled = false;
+          mSubmit.textContent = oldTxt || "Place Paper Order";
+        }
+      }
+    });
   }
 
   modalEl.addEventListener("hidden.bs.modal", () => {
@@ -367,37 +421,19 @@ function initDashboardQuickTrade() {
     }
   }, 200);
 
-  box.addEventListener("input", doSearch);
-  mLots?.addEventListener("input", updateCapUI);
-  mSide?.addEventListener("change", updateCapUI);
-
-  mForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    if (mMsg) mMsg.innerHTML = "";
-
-    if (!mInstrumentId?.value) {
-      if (mMsg) mMsg.innerHTML = `<div class="alert alert-warning py-2">No instrument selected.</div>`;
-      return;
-    }
-
-    try {
-      const res = await jpostForm("/api/order", {
-        instrument_id: mInstrumentId.value,
-        side: mSide?.value || "BUY",
-        lots: mLots?.value || "1",
-      });
-
-      if (mMsg) {
-        mMsg.innerHTML = `<div class="alert alert-success py-2">
-          Order #${res.order_id}: FILLED @ ${Number(res.fill_price).toFixed(2)}
-        </div>`;
-      }
-
-      await refreshDashboard();
-    } catch (err) {
-      if (mMsg) mMsg.innerHTML = `<div class="alert alert-danger py-2">${err}</div>`;
-    }
-  });
+  // Guard input binding once
+  if (box.dataset.boundInput !== "1") {
+    box.dataset.boundInput = "1";
+    box.addEventListener("input", doSearch);
+  }
+  if (mLots && mLots.dataset.boundInput !== "1") {
+    mLots.dataset.boundInput = "1";
+    mLots.addEventListener("input", updateCapUI);
+  }
+  if (mSide && mSide.dataset.boundChange !== "1") {
+    mSide.dataset.boundChange = "1";
+    mSide.addEventListener("change", updateCapUI);
+  }
 }
 
 // ===================== Trade page =====================
@@ -427,15 +463,16 @@ async function initTrade() {
 
   const sideSel = orderForm.querySelector('select[name="side"]');
   const lotsInp = orderForm.querySelector('input[name="lots"]');
+  const submitBtn = orderForm.querySelector('button[type="submit"], button:not([type])');
 
   let currentInstrument = null;
   let lastQuote = null;
 
   function clearCapitalUI() {
-    qtyPerLot.textContent = "—";
-    capPerLot.textContent = "—";
-    qtyOrder.textContent = "—";
-    capOrder.textContent = "—";
+    if (qtyPerLot) qtyPerLot.textContent = "—";
+    if (capPerLot) capPerLot.textContent = "—";
+    if (qtyOrder) qtyOrder.textContent = "—";
+    if (capOrder) capOrder.textContent = "—";
   }
 
   function updateCapitalUI() {
@@ -451,11 +488,11 @@ async function initTrade() {
     const perLotQty = lot;
     const ordQty = lot * lots;
 
-    qtyPerLot.textContent = String(perLotQty);
-    capPerLot.textContent = fmtINR(ltp * perLotQty);
+    if (qtyPerLot) qtyPerLot.textContent = String(perLotQty);
+    if (capPerLot) capPerLot.textContent = fmtINR(ltp * perLotQty);
 
-    qtyOrder.textContent = String(ordQty);
-    capOrder.textContent = side === "SELL" ? `${fmtINR(ltp * ordQty)} (credit)` : fmtINR(ltp * ordQty);
+    if (qtyOrder) qtyOrder.textContent = String(ordQty);
+    if (capOrder) capOrder.textContent = side === "SELL" ? `${fmtINR(ltp * ordQty)} (credit)` : fmtINR(ltp * ordQty);
   }
 
   const doSearch = debounce(async () => {
@@ -463,7 +500,13 @@ async function initTrade() {
     results.innerHTML = "";
     if (q.length < 2) return;
 
-    const items = await jget(`/api/search?q=${encodeURIComponent(q)}`);
+    let items = [];
+    try {
+      items = await jget(`/api/search?q=${encodeURIComponent(q)}`);
+    } catch {
+      return;
+    }
+
     for (const it of items || []) {
       const b = document.createElement("button");
       b.className = "list-group-item list-group-item-action bg-dark text-light border-secondary";
@@ -475,11 +518,11 @@ async function initTrade() {
 
       b.onclick = () => {
         currentInstrument = it;
-        instrumentId.value = it.instrument_id;
+        if (instrumentId) instrumentId.value = it.instrument_id;
 
-        selSymbol.textContent = primary;
-        selType.textContent = it.instrument_type || "—";
-        selLot.textContent = it.lot_size;
+        if (selSymbol) selSymbol.textContent = primary;
+        if (selType) selType.textContent = it.instrument_type || "—";
+        if (selLot) selLot.textContent = it.lot_size;
 
         results.innerHTML = "";
         lastQuote = null;
@@ -490,51 +533,97 @@ async function initTrade() {
     }
   }, 200);
 
-  searchBox.addEventListener("input", doSearch);
-  lotsInp.addEventListener("input", updateCapitalUI);
-  sideSel.addEventListener("change", updateCapitalUI);
+  // Bind once guards
+  if (searchBox.dataset.boundInput !== "1") {
+    searchBox.dataset.boundInput = "1";
+    searchBox.addEventListener("input", doSearch);
+  }
+  if (lotsInp && lotsInp.dataset.boundInput !== "1") {
+    lotsInp.dataset.boundInput = "1";
+    lotsInp.addEventListener("input", updateCapitalUI);
+  }
+  if (sideSel && sideSel.dataset.boundChange !== "1") {
+    sideSel.dataset.boundChange = "1";
+    sideSel.addEventListener("change", updateCapitalUI);
+  }
 
-  // Quote poll
+  // Quote poll (avoid overlap)
+  let quoteInFlight = false;
   setInterval(async () => {
-    if (!currentInstrument) return;
-    const q = await jget(`/api/quote/${currentInstrument.instrument_id}`);
-    lastQuote = q;
+    if (!currentInstrument || quoteInFlight) return;
+    quoteInFlight = true;
+    try {
+      const q = await jget(`/api/quote/${currentInstrument.instrument_id}`);
+      lastQuote = q;
 
-    selLtp.textContent = q.ltp == null ? "—" : Number(q.ltp).toFixed(2);
-    mktStatus.textContent = q.market_open ? "Market open (live quotes)" : "Market closed (last quote if available)";
-    updateCapitalUI();
+      if (selLtp) selLtp.textContent = q.ltp == null ? "—" : Number(q.ltp).toFixed(2);
+      if (mktStatus) mktStatus.textContent = q.market_open ? "Market open (live quotes)" : "Market closed (last quote if available)";
+      updateCapitalUI();
+    } catch {
+      // ignore
+    } finally {
+      quoteInFlight = false;
+    }
   }, 2000);
 
-  // Mini account poll
+  // Mini account poll (avoid overlap)
+  let acctInFlight = false;
   setInterval(async () => {
-    const d = await jget("/api/dashboard");
-    dashCash.textContent = fmtINR(d.cash);
-    dashNet.textContent = fmtINR(d.net_liq);
-    setPnLClass(dashNet, d.net_liq - d.cash);
+    if (acctInFlight) return;
+    acctInFlight = true;
+    try {
+      const d = await jget("/api/dashboard");
+      if (dashCash) dashCash.textContent = fmtINR(d.cash);
+      if (dashNet) dashNet.textContent = fmtINR(d.net_liq);
+      setPnLClass(dashNet, d.net_liq - d.cash);
+    } catch {
+      // ignore
+    } finally {
+      acctInFlight = false;
+    }
   }, 4000);
 
-  orderForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    orderMsg.innerHTML = "";
+  if (orderForm.dataset.boundSubmit !== "1") {
+    orderForm.dataset.boundSubmit = "1";
 
-    if (!instrumentId.value) {
-      orderMsg.innerHTML = `<div class="alert alert-warning py-2">Select an instrument first.</div>`;
-      return;
-    }
+    orderForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (orderMsg) orderMsg.innerHTML = "";
 
-    try {
-      const res = await jpostForm("/api/order", {
-        instrument_id: instrumentId.value,
-        side: sideSel.value,
-        lots: lotsInp.value,
-      });
-      orderMsg.innerHTML = `<div class="alert alert-success py-2">
-        Order #${res.order_id}: FILLED @ ${Number(res.fill_price).toFixed(2)}
-      </div>`;
-    } catch (err) {
-      orderMsg.innerHTML = `<div class="alert alert-danger py-2">${err}</div>`;
-    }
-  });
+      if (!instrumentId?.value) {
+        if (orderMsg) orderMsg.innerHTML = `<div class="alert alert-warning py-2">Select an instrument first.</div>`;
+        return;
+      }
+
+      const oldTxt = submitBtn ? submitBtn.textContent : "";
+
+      try {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Placing…";
+        }
+
+        const res = await jpostForm("/api/order", {
+          instrument_id: instrumentId.value,
+          side: sideSel.value,
+          lots: lotsInp.value,
+        });
+
+        if (orderMsg) {
+          orderMsg.innerHTML = `<div class="alert alert-success py-2">
+            Order #${res.order_id}: FILLED @ ${Number(res.fill_price).toFixed(2)}
+          </div>`;
+        }
+      } catch (err) {
+        if (orderMsg) orderMsg.innerHTML = `<div class="alert alert-danger py-2">${err}</div>`;
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = oldTxt || "Place Paper Order";
+        }
+      }
+    });
+  }
 }
 
 // ===================== Boot =====================
@@ -545,8 +634,7 @@ window.addEventListener("load", () => {
     initDashboardExitHandler();
     initDashboardQuickTrade();
 
-    // ✅ 1-second cadence: tries to start a refresh every 1000ms.
-    // If API call takes >1s, next refresh runs immediately after it finishes.
+    // Refresh loop (1s cadence, no overlap)
     let inFlight = false;
 
     async function loop() {
@@ -562,7 +650,7 @@ window.addEventListener("load", () => {
       try {
         await refreshDashboard();
       } catch {
-        // ignore; keep looping
+        // ignore
       } finally {
         inFlight = false;
         const elapsed = performance.now() - t0;
