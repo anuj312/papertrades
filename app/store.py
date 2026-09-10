@@ -1,11 +1,27 @@
 import os
 import re
+import time
 import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import pandas as pd
+
+IST = ZoneInfo("Asia/Kolkata")
+
+def _env_bool(key: str, default: str = "1") -> bool:
+    v = os.getenv(key, default).strip().lower()
+    return v in ("1", "true", "yes", "y", "on")
+
+
+# If enabled, and user did NOT type an expiry explicitly, options results will be restricted
+# to current IST month (September shows only September expiries).
+ONLY_CURRENT_MONTH_OPTIONS = _env_bool("ONLY_CURRENT_MONTH_OPTIONS", "1")
+
+# Cache will be ignored if older than this (seconds)
+INSTRUMENTS_CACHE_MAX_AGE_SEC = int(os.getenv("INSTRUMENTS_CACHE_MAX_AGE_SEC", "21600"))  # 6 hours
 
 
 # =========================
@@ -65,6 +81,10 @@ class InMemoryStore:
       - smart options: "icici 1660" -> nearest strikes CE+PE, nearest expiry first
       - filters: "icici 1660 ce", "icici 1660 pe", "icici 1660 26aug"
       - fallback: generic symbol/name search
+
+    FIXED:
+      - Instruments cache is time-limited (avoids stale August contracts).
+      - Option search defaults to CURRENT MONTH only (configurable).
     """
 
     def __init__(self):
@@ -90,10 +110,19 @@ class InMemoryStore:
         """
         Loads instruments into memory from Kite instruments dump.
         Optional local cache (CSV gzip) to speed up restarts.
+        Cache is ignored if older than INSTRUMENTS_CACHE_MAX_AGE_SEC.
         """
         cache_path = os.getenv("INSTRUMENTS_CACHE_PATH", "./instruments_cache.csv.gz")
 
+        use_cache = False
         if os.path.exists(cache_path):
+            try:
+                age = time.time() - os.path.getmtime(cache_path)
+                use_cache = (age <= INSTRUMENTS_CACHE_MAX_AGE_SEC)
+            except Exception:
+                use_cache = False
+
+        if use_cache:
             df = pd.read_csv(cache_path)
 
             # Backward compatibility: if cache doesn't have instrument_id, rebuild
@@ -133,7 +162,7 @@ class InMemoryStore:
             self._build_nfo_index()
             return
 
-        # No cache: download from Kite
+        # No (valid) cache: download from Kite
         frames: List[pd.DataFrame] = []
         for exch in exchanges:
             rows = kite.instruments(exch)
@@ -171,6 +200,7 @@ class InMemoryStore:
         df["strike"] = pd.to_numeric(df["strike"], errors="coerce")
 
         df["expiry_dt"] = pd.to_datetime(df.get("expiry", None), errors="coerce")
+
         # Store expiry as clean string (date) for UI & cache
         df["expiry"] = df["expiry_dt"].dt.date.astype("string").fillna("")
 
@@ -243,7 +273,6 @@ class InMemoryStore:
             expiry_text = m.group(2)
             strike = float(m.group(3))
             opt_type = m.group(4)
-            # strike formatting
             strike_str = str(int(strike)) if float(strike).is_integer() else str(strike)
             exact_symbol = f"{underlying}{expiry_text}{strike_str}{opt_type}"
 
@@ -291,7 +320,6 @@ class InMemoryStore:
         # 1) exact symbol match path
         if info["exact_symbol"]:
             sym = info["exact_symbol"]
-            # Try hinted exchange first, then NFO
             if info["exch_hint"] in ("NFO", "NSE"):
                 exact = df[(df["exchange"] == info["exch_hint"]) & (df["ts_u"] == sym)]
             else:
@@ -319,6 +347,22 @@ class InMemoryStore:
 
         if info["opt_type"] in ("CE", "PE"):
             out = out[out["instrument_type"] == info["opt_type"]]
+
+        # If user is browsing NFO options without specifying expiry, keep it current month
+        if ONLY_CURRENT_MONTH_OPTIONS and info["expiry_text"] is None:
+            if "expiry_dt" in out.columns:
+                today = datetime.now(IST).date()
+                nfo_opts = out[(out["exchange"] == "NFO") & (out["instrument_type"].isin(["CE", "PE"]))].copy()
+                if not nfo_opts.empty:
+                    nfo_opts = nfo_opts[pd.notna(nfo_opts["expiry_dt"])].copy()
+                    nfo_opts = nfo_opts[nfo_opts["expiry_dt"].dt.date >= today]
+                    nfo_opts = nfo_opts[
+                        (nfo_opts["expiry_dt"].dt.year == today.year) &
+                        (nfo_opts["expiry_dt"].dt.month == today.month)
+                    ]
+                    # Replace only the option rows; keep other results
+                    non_opts = out[~((out["exchange"] == "NFO") & (out["instrument_type"].isin(["CE", "PE"])))]
+                    out = pd.concat([non_opts, nfo_opts], ignore_index=True)
 
         out = out.sort_values(by=["exchange", "tradingsymbol"], ascending=[True, True])
         return self._rows_out(out.head(limit))
@@ -367,6 +411,17 @@ class InMemoryStore:
 
         if expiry_text:
             base = base[base["ts_u"].str.contains(expiry_text.upper(), na=False)]
+
+        # ---- IMPORTANT: remove expired + (optionally) restrict to current month ----
+        today = datetime.now(IST).date()
+        base = base[pd.notna(base["expiry_dt"])].copy()
+        base = base[base["expiry_dt"].dt.date >= today]  # remove expired contracts
+
+        if ONLY_CURRENT_MONTH_OPTIONS and not expiry_text:
+            base = base[
+                (base["expiry_dt"].dt.year == today.year) &
+                (base["expiry_dt"].dt.month == today.month)
+            ].copy()
 
         base = base[pd.notna(base["strike"])].copy()
         if base.empty:
