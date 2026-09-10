@@ -18,7 +18,6 @@
 
     <div class="ms-auto d-flex align-items-center gap-2">
 
-      {# Navbar search shown only on dashboard #}
       {% if request.url.path == "/dashboard" %}
       <div id="dashSearchWrap" class="position-relative" style="width: 340px; max-width: 40vw;">
         <input
@@ -35,7 +34,6 @@
       </div>
       {% endif %}
 
-      <!-- Tabs -->
       <a class="btn btn-outline-light btn-sm tab-btn {% if request.url.path.startswith('/dashboard') %}active{% endif %}"
          href="/dashboard">Dashboard</a>
 
@@ -62,7 +60,7 @@
 <script src="/static/app.js"></script>
 
 <script>
-  // Reset button
+  // Reset
   document.addEventListener("click", async (e) => {
     if (e.target && e.target.id === "btnReset") {
       if (!confirm("Reset demo account to ₹10,00,000 and clear positions/orders?")) return;
@@ -72,8 +70,8 @@
     }
   });
 
-  // Dashboard navbar search: close dropdown when clicking outside
-  (function initDashSearchCloseOnOutsideClick(){
+  // Dashboard navbar search: click outside to close (scroll fixed)
+  (function initDashSearchUX(){
     const wrap = document.getElementById("dashSearchWrap");
     const box = document.getElementById("dashSearchBox");
     const results = document.getElementById("dashSearchResults");
@@ -84,27 +82,32 @@
       results.innerHTML = "";
     }
 
-    // If app.js renders results by setting innerHTML, auto-toggle visibility
+    // Auto show/hide when app.js renders results
     const mo = new MutationObserver(() => {
       const hasItems = results.children && results.children.length > 0;
       results.style.display = hasItems ? "block" : "none";
     });
     mo.observe(results, { childList: true });
 
-    // Close when clicking outside search wrap
+    // Close when clicking outside
     document.addEventListener("pointerdown", (e) => {
       if (!wrap.contains(e.target)) hideResults();
     });
 
-    // Close on ESC
+    // ESC closes
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") hideResults();
     });
 
-    // Optional: close on scroll
-    window.addEventListener("scroll", hideResults, true);
+    // IMPORTANT FIX:
+    // Do NOT use capture=true on scroll, otherwise scrolling the results list hides it.
+    // If you still want to close on PAGE scroll, keep this (no capture):
+    window.addEventListener("scroll", () => {
+      // closes only when the window/page scrolls, not when dropdown itself scrolls
+      hideResults();
+    }, { passive: true });
 
-    // If input loses focus and focus goes outside wrap, close
+    // Blur: if focus moves outside wrap, close
     box.addEventListener("blur", () => {
       setTimeout(() => {
         const active = document.activeElement;
