@@ -205,9 +205,7 @@
     return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
   }
 
-  // ---------------------------
   // Share Realized
-  // ---------------------------
   document.addEventListener("click", async (e) => {
     if (!e.target || e.target.id !== "btnShareRealized") return;
 
@@ -236,11 +234,7 @@
     }
   });
 
-  // ---------------------------
   // Lots stepper (NO order submit here)
-  // Order submit is handled in /static/app.js (initDashboardQuickTrade),
-  // so we MUST NOT add another submit handler here.
-  // ---------------------------
   function clampLots(v){
     let n = parseInt(v || "1", 10);
     if (isNaN(n) || n < 1) n = 1;
@@ -250,7 +244,6 @@
   function dispatchLotsInput(){
     const lotsEl = document.getElementById("mLots");
     if (!lotsEl) return;
-    // Triggers app.js listeners (mLots input -> updateCapUI)
     lotsEl.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
@@ -279,7 +272,6 @@
       });
     }
 
-    // Clear message when modal opens
     const modalEl = document.getElementById("orderModal");
     if (modalEl){
       modalEl.addEventListener("shown.bs.modal", () => {

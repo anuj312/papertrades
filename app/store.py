@@ -18,16 +18,19 @@ def _env_bool(key: str, default: str = "1") -> bool:
 
 
 # If enabled, and user did NOT type an expiry explicitly, options results will be restricted
-# to current IST month.
-ONLY_CURRENT_MONTH_OPTIONS = _env_bool("ONLY_CURRENT_MONTH_OPTIONS", "1")
+# to a month window (current month + next month by default).
+LIMIT_OPTION_EXPIRIES_TO_MONTH_WINDOW = _env_bool("LIMIT_OPTION_EXPIRIES_TO_MONTH_WINDOW", "1")
 
-# Cache will be ignored if older than this (seconds)
+# How many months ahead to include (1 => current + next month)
+OPTION_MONTHS_AHEAD = int(os.getenv("OPTION_MONTHS_AHEAD", "1"))
+
+# Cache ignored if older than this (seconds)
 INSTRUMENTS_CACHE_MAX_AGE_SEC = int(os.getenv("INSTRUMENTS_CACHE_MAX_AGE_SEC", "21600"))  # 6 hours
 
-# How many strikes around target strike (e.g. 3 => 7 strikes total)
+# How many strikes around target strike (3 => 7 strikes total)
 NEAREST_STRIKES = int(os.getenv("NEAREST_STRIKES", "3"))
 
-# Hard safety cap to avoid huge responses
+# Safety cap
 SEARCH_LIMIT_MAX = int(os.getenv("SEARCH_LIMIT_MAX", "500"))
 
 
@@ -83,11 +86,11 @@ class InMemoryStore:
     """
     Demo in-memory store.
 
-    Search behavior (NFO options):
-      - "ICICI 1660" => nearest strikes around 1660 for ALL expiries in CURRENT month
-      - "ICICI"      => ALL options for CURRENT month (limited by `limit`)
-      - "ICICI 1660 CE" => only CE
-      - "ICICI 1660 26SEP" => allows explicit expiry override
+    Options behavior (NFO CE/PE):
+      - Default window: current month + next month only (configurable)
+      - "ICICI 1660" => nearest strikes around 1660 for ALL expiries in the window
+      - "ICICI" => all options for expiries in the window (limited by `limit`)
+      - If user types explicit expiry text (e.g. 26AUG), we DO NOT apply the month-window filter.
     """
 
     def __init__(self):
@@ -257,7 +260,6 @@ class InMemoryStore:
             exch_hint = "NSE"
             u = u[4:]
 
-        # Exact option symbol example: ICICIBANK26AUG1660CE
         m = re.match(r"^([A-Z]+)(\d{1,2}[A-Z]{3}\d{0,2})(\d+(?:\.\d+)?)(CE|PE)$", u.replace(" ", ""))
         exact_symbol = None
         underlying = None
@@ -304,98 +306,49 @@ class InMemoryStore:
             "exact_symbol": exact_symbol,
         }
 
-    def _apply_current_month_filter(self, base: pd.DataFrame, *, expiry_text: Optional[str]) -> pd.DataFrame:
+    def _allowed_year_months(self, today: datetime.date) -> set[tuple[int, int]]:
+        """
+        Returns {(year, month)} for current month .. current+OPTION_MONTHS_AHEAD.
+        Handles year rollover (Dec -> Jan).
+        """
+        out: set[tuple[int, int]] = set()
+        y, m = today.year, today.month
+        for i in range(max(0, int(OPTION_MONTHS_AHEAD)) + 1):
+            mm = m + i
+            yy = y + (mm - 1) // 12
+            mo = ((mm - 1) % 12) + 1
+            out.add((yy, mo))
+        return out
+
+    def _apply_month_window_filter(self, base: pd.DataFrame, *, expiry_text: Optional[str]) -> pd.DataFrame:
         """
         - Always removes expired contracts (expiry < today IST)
-        - If ONLY_CURRENT_MONTH_OPTIONS and expiry_text is not provided, keep only current month expiries
+        - If month-window enabled and user did NOT type expiry_text, keep only current+next month
         """
-        if base.empty:
+        if base.empty or "expiry_dt" not in base.columns:
             return base
 
         today = datetime.now(IST).date()
-
-        if "expiry_dt" not in base.columns:
-            return base
 
         base = base[pd.notna(base["expiry_dt"])].copy()
         if base.empty:
             return base
 
+        # remove expired (strictly before today)
         base = base[base["expiry_dt"].dt.date >= today].copy()
+        if base.empty:
+            return base
 
-        if ONLY_CURRENT_MONTH_OPTIONS and not expiry_text:
+        if LIMIT_OPTION_EXPIRIES_TO_MONTH_WINDOW and not expiry_text:
+            allowed = self._allowed_year_months(today)
             base = base[
-                (base["expiry_dt"].dt.year == today.year) &
-                (base["expiry_dt"].dt.month == today.month)
+                base["expiry_dt"].dt.year.astype(int).combine(
+                    base["expiry_dt"].dt.month.astype(int),
+                    lambda yy, mo: (yy, mo)
+                ).isin(allowed)
             ].copy()
 
         return base
-
-    # ---------------------------
-    # Search
-    # ---------------------------
-    def search_instruments(self, q: str, limit: int = 200) -> List[dict]:
-        df = self.instruments_df
-        if df is None:
-            return []
-
-        limit = max(1, min(int(limit), SEARCH_LIMIT_MAX))
-
-        info = self._parse_query(q)
-        q_u = info["q_u"]
-        if len(q_u) < 2:
-            return []
-
-        # 1) exact symbol match
-        if info["exact_symbol"]:
-            sym = info["exact_symbol"]
-            if info["exch_hint"] in ("NFO", "NSE"):
-                exact = df[(df["exchange"] == info["exch_hint"]) & (df["ts_u"] == sym)]
-            else:
-                exact = df[(df["exchange"] == "NFO") & (df["ts_u"] == sym)]
-
-            if not exact.empty:
-                return self._rows_out(exact.head(limit))
-
-        # 2) underlying + strike => nearest strikes around strike, all expiries in current month
-        if info["underlying"] and info["strike"] is not None:
-            return self._search_options_near_strike(
-                underlying=str(info["underlying"]),
-                strike=float(info["strike"]),
-                opt_type=info["opt_type"],
-                expiry_text=info["expiry_text"],
-                limit=limit,
-            )
-
-        # 3) underlying only => all options for current month (limited)
-        if info["underlying"] and info["strike"] is None:
-            return self._search_options_current_month_all(
-                underlying=str(info["underlying"]),
-                opt_type=info["opt_type"],
-                expiry_text=info["expiry_text"],
-                limit=limit,
-            )
-
-        # 4) fallback global search
-        m = df["ts_u"].str.contains(q_u, na=False) | df["name_u"].str.contains(q_u, na=False)
-        out = df.loc[m].copy()
-
-        if info["exch_hint"] in ("NSE", "NFO"):
-            out = out[out["exchange"] == info["exch_hint"]]
-
-        if info["opt_type"] in ("CE", "PE"):
-            out = out[out["instrument_type"] == info["opt_type"]]
-
-        # If browsing NFO options without expiry specified, keep current month
-        if ONLY_CURRENT_MONTH_OPTIONS and info["expiry_text"] is None:
-            nfo_opts = out[(out["exchange"] == "NFO") & (out["instrument_type"].isin(["CE", "PE"]))].copy()
-            if not nfo_opts.empty:
-                nfo_opts = self._apply_current_month_filter(nfo_opts, expiry_text=None)
-                non_opts = out[~((out["exchange"] == "NFO") & (out["instrument_type"].isin(["CE", "PE"])))]
-                out = pd.concat([non_opts, nfo_opts], ignore_index=True)
-
-        out = out.sort_values(by=["exchange", "tradingsymbol"], ascending=[True, True])
-        return self._rows_out(out.head(limit))
 
     def _options_base_for_underlying(self, underlying: str) -> pd.DataFrame:
         df = self.instruments_df
@@ -422,10 +375,74 @@ class InMemoryStore:
         else:
             base = df.loc[idx].copy()
 
-        base = base[(base["exchange"] == "NFO") & (base["instrument_type"].isin(["CE", "PE"]))].copy()
-        return base
+        return base[(base["exchange"] == "NFO") & (base["instrument_type"].isin(["CE", "PE"]))].copy()
 
-    def _search_options_current_month_all(
+    # ---------------------------
+    # Search
+    # ---------------------------
+    def search_instruments(self, q: str, limit: int = 200) -> List[dict]:
+        df = self.instruments_df
+        if df is None:
+            return []
+
+        limit = max(1, min(int(limit), SEARCH_LIMIT_MAX))
+
+        info = self._parse_query(q)
+        q_u = info["q_u"]
+        if len(q_u) < 2:
+            return []
+
+        # 1) exact symbol match
+        if info["exact_symbol"]:
+            sym = info["exact_symbol"]
+            if info["exch_hint"] in ("NFO", "NSE"):
+                exact = df[(df["exchange"] == info["exch_hint"]) & (df["ts_u"] == sym)]
+            else:
+                exact = df[(df["exchange"] == "NFO") & (df["ts_u"] == sym)]
+            if not exact.empty:
+                return self._rows_out(exact.head(limit))
+
+        # 2) underlying + strike => nearest strikes around strike across all expiries in window
+        if info["underlying"] and info["strike"] is not None:
+            return self._search_options_near_strike(
+                underlying=str(info["underlying"]),
+                strike=float(info["strike"]),
+                opt_type=info["opt_type"],
+                expiry_text=info["expiry_text"],
+                limit=limit,
+            )
+
+        # 3) underlying only => all options in window (limited)
+        if info["underlying"] and info["strike"] is None:
+            return self._search_options_window_all(
+                underlying=str(info["underlying"]),
+                opt_type=info["opt_type"],
+                expiry_text=info["expiry_text"],
+                limit=limit,
+            )
+
+        # 4) fallback global search
+        m = df["ts_u"].str.contains(q_u, na=False) | df["name_u"].str.contains(q_u, na=False)
+        out = df.loc[m].copy()
+
+        if info["exch_hint"] in ("NSE", "NFO"):
+            out = out[out["exchange"] == info["exch_hint"]]
+
+        if info["opt_type"] in ("CE", "PE"):
+            out = out[out["instrument_type"] == info["opt_type"]]
+
+        # Apply month window to option rows when browsing without explicit expiry
+        if LIMIT_OPTION_EXPIRIES_TO_MONTH_WINDOW and info["expiry_text"] is None:
+            nfo_opts = out[(out["exchange"] == "NFO") & (out["instrument_type"].isin(["CE", "PE"]))].copy()
+            if not nfo_opts.empty:
+                nfo_opts = self._apply_month_window_filter(nfo_opts, expiry_text=None)
+                non_opts = out[~((out["exchange"] == "NFO") & (out["instrument_type"].isin(["CE", "PE"])))]
+                out = pd.concat([non_opts, nfo_opts], ignore_index=True)
+
+        out = out.sort_values(by=["exchange", "tradingsymbol"], ascending=[True, True])
+        return self._rows_out(out.head(limit))
+
+    def _search_options_window_all(
         self,
         *,
         underlying: str,
@@ -443,7 +460,7 @@ class InMemoryStore:
         if expiry_text:
             base = base[base["ts_u"].str.contains(expiry_text.upper(), na=False)].copy()
 
-        base = self._apply_current_month_filter(base, expiry_text=expiry_text)
+        base = self._apply_month_window_filter(base, expiry_text=expiry_text)
         if base.empty:
             return []
 
@@ -451,7 +468,6 @@ class InMemoryStore:
         if base.empty:
             return []
 
-        # show "all" (limited) sorted nicely
         base = base.sort_values(
             by=["expiry_dt", "strike", "instrument_type"],
             ascending=[True, True, True],
@@ -478,8 +494,8 @@ class InMemoryStore:
         if expiry_text:
             base = base[base["ts_u"].str.contains(expiry_text.upper(), na=False)].copy()
 
-        # Current month + remove expired (unless user explicitly typed expiry)
-        base = self._apply_current_month_filter(base, expiry_text=expiry_text)
+        # apply: remove expired + keep current+next month (unless explicit expiry typed)
+        base = self._apply_month_window_filter(base, expiry_text=expiry_text)
         if base.empty:
             return []
 
@@ -489,8 +505,9 @@ class InMemoryStore:
 
         base["diff"] = (base["strike"].astype(float) - float(strike)).abs()
 
-        # Pick nearest unique strikes
         want_unique = max(1, (2 * int(NEAREST_STRIKES) + 1))
+
+        # nearest unique strikes (picked using earliest expiry to define "nearest")
         nearest = (
             base.sort_values(["diff", "expiry_dt"], ascending=[True, True])
                 .drop_duplicates(subset=["strike"])
@@ -498,7 +515,7 @@ class InMemoryStore:
         )
         strikes = nearest["strike"].astype(float).tolist()
 
-        # IMPORTANT: return ALL expiries (current month) for these strikes
+        # IMPORTANT: return ALL expiries (within month window) for these strikes
         out = base[base["strike"].astype(float).isin(strikes)].copy()
         out["diff2"] = (out["strike"].astype(float) - float(strike)).abs()
 
@@ -570,7 +587,6 @@ class InMemoryStore:
         with self.lock:
             acct = self.account
 
-            # No margin simulation: BUY must have cash
             if side == "BUY" and acct.cash < notional:
                 return False, f"Insufficient cash. Need ₹{notional:,.2f}", None
 
